@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { defineRpcContract, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
+import {registerContextHook} from './context-hook';
 import { launchContext } from './launch-context';
 
 const intent=z.object({next_action:z.string(),purpose:z.string(),project:z.string(),thread_id:z.string().nullable(),version:z.number(),updated_at:z.number().nullable()});
@@ -29,7 +30,14 @@ const threadContextSchema=z.object({associated_work:z.array(workOption),work:wor
 export type ThreadContext=z.infer<typeof threadContextSchema>;
 export type Snapshot = z.infer<typeof snapshotSchema>;
 const mutation = z.object({kind:z.enum(['work','obligation','conversation']),id:z.string().max(100),action:z.enum(['focus','unfocus','active','waiting','done','open','fulfilled','cancelled','link']),version:z.number().optional(),value:z.string().optional()});
+const reviewRow=z.object({obligation_id:z.string(),title:z.string(),state:z.string(),verdict:z.string().nullable(),reason:z.string().nullable(),error:z.string().nullable(),checked_at:z.number().nullable(),commitment_state:z.string(),current_version:z.number(),obligation_version:z.number().nullable(),applied_version:z.number().nullable(),work_id:z.string(),url:z.string(),evidence:z.array(z.object({event_id:z.string(),url:z.string(),quote:z.string(),occurred_at:z.number()}))});
+const reviewPage=z.object({items:z.array(reviewRow),total:z.number(),has_more:z.boolean(),counts:z.record(z.string(),z.number()),budget:z.object({limit:z.number(),used:z.number(),remaining:z.number()})});
+export type CompletionPage=z.infer<typeof reviewPage>;
 export const rpcContract = defineRpcContract({
+ completionPage:{input:z.object({offset:z.number().int().min(0).max(100000),verdict:z.string().max(40)}),output:reviewPage},
+ queueCompletion:{input:z.object({scope:z.enum(['unseen','open','selected']),ids:z.array(z.string().max(100)).max(100).optional()}),output:z.object({queued:z.number()})},
+ resolveCompletion:{input:z.object({obligationId:z.string().max(100)}),output:z.object({ok:z.boolean()})},
+ contextPacket:{input:z.object({threadId:z.string().startsWith('thr_').max(100)}),output:z.record(z.string(),z.unknown())},
  snapshot:{input:z.null(),output:snapshotSchema},
  workDetail:{input:z.object({workId:z.string().max(100)}),output:workDetail},
  workIndex:{input:z.object({query:z.string().max(200),status:z.enum(['all','active','waiting','done']),offset:z.number().int().min(0).max(100000)}),output:workIndex},
@@ -50,6 +58,7 @@ export const rpcContract = defineRpcContract({
 export default async function plugin(bb:BbPluginApi) {
  const settings=bb.settings.define({
   hubPath:{type:'string',label:'Portable hub directory',default:''},
+  autoContext:{type:'boolean',label:'Automatically link new conversations and fetch referenced context',default:false},
   collectThreads:{type:'boolean',label:'Collect recent BB conversations across projects (including hidden)',default:false},
   pythonPath:{type:'string',label:'Python executable',default:'python3'},
   storageBackend:{type:'string',label:'Storage backend (bb or json; blank inherits environment)',default:''},
@@ -64,12 +73,12 @@ export default async function plugin(bb:BbPluginApi) {
  }
  const liveChildren = new Set<ReturnType<typeof spawn>>();
  bb.onDispose(()=>{for(const child of liveChildren)child.kill('SIGTERM');});
- async function core(op:string,args:unknown={}):Promise<unknown>{
+ async function core(op:string,args:unknown={},timeout=25000):Promise<unknown>{
   if(!config.hubPath.startsWith('/'))throw new Error('Set Work Hub hubPath to your absolute hub directory before use');
   return new Promise((resolve,reject)=>{
    const child=spawn(config.pythonPath,[`${config.hubPath}/cli.py`],{stdio:['pipe','pipe','pipe'],env:{...storageEnv,WORK_HUB_STATE:`${config.hubPath}/.state`}});
    liveChildren.add(child);let out='';let finished=false;
-   const timer=setTimeout(()=>child.kill('SIGTERM'),25000);
+   const timer=setTimeout(()=>child.kill('SIGTERM'),timeout);
    const finish=(err?:Error,result?:unknown)=>{if(finished)return;finished=true;clearTimeout(timer);liveChildren.delete(child);err?reject(err):resolve(result);};
    child.stdout.on('data',(b:Buffer)=>{out+=b.toString();if(out.length>8_000_000){child.kill();finish(new Error('Hub response too large'));}});
    child.stderr.on('data',()=>{}); // Private payloads never go to BB logs.
@@ -79,6 +88,7 @@ export default async function plugin(bb:BbPluginApi) {
    child.stdin.end(JSON.stringify({op,args}));
   });
  }
+ registerContextHook(bb,core,config.autoContext&&config.collectThreads);
  async function trackThread(threadId:string){
   const metadata=await bb.sdk.threads.getPluginMetadata({threadId});
   const parsed=z.object({workId:z.string().max(100)}).safeParse(metadata);
@@ -118,6 +128,10 @@ export default async function plugin(bb:BbPluginApi) {
   return syncing;
  }
  bb.rpc.register(rpcContract,{
+  completionPage:async args=>reviewPage.parse(await core('completion_page',args)),
+  queueCompletion:async args=>{const result=z.object({queued:z.number()}).parse(await core('queue_completion',args));bb.realtime.publish('changed',{});return result},
+  resolveCompletion:async({obligationId})=>{const result=z.object({ok:z.boolean()}).parse(await core('resolve_completion',{obligation_id:obligationId}));bb.realtime.publish('changed',{});return result},
+  contextPacket:async({threadId})=>z.record(z.string(),z.unknown()).parse(await core('context_packet',{thread_id:threadId})),
   prepareLaunch:async({workId,obligationId})=>{
    const snapshot=snapshotSchema.parse(await core('snapshot'));
    const detail=workDetail.parse(await core('work_detail',{work_id:workId}));

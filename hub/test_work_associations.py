@@ -55,8 +55,8 @@ class WorkAssociationTests(unittest.TestCase):
         self.assertEqual([w['id'] for w in options['options']],[self.two])
         self.assertEqual(self.s.thread_context('thr_one',self.two)['work']['id'],self.one)
         self.assertEqual(self.s.work_options(self.one,'%')['options'],[])
-    def test_round_trip_v2_and_legacy_v1_import(self):
-        self.add();payload=self.s.export();self.assertEqual(payload['schema_version'],2)
+    def test_round_trip_v3_and_legacy_v1_import(self):
+        self.add();payload=self.s.export();self.assertEqual(payload['schema_version'],3)
         other=Store(Path(self.temp.name)/'roundtrip.db')
         try:
             other.import_snapshot(payload)

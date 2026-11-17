@@ -10,6 +10,8 @@ from settings import timezone as local_timezone
 from pathlib import Path
 from presentation import PresentationMixin
 
+from lifecycle import LifecycleMixin, SCHEMA as LIFECYCLE_SCHEMA
+
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS sources(name TEXT PRIMARY KEY, state TEXT NOT NULL DEFAULT 'not_connected', scope TEXT NOT NULL DEFAULT '', checkpoint TEXT, checked_at REAL, last_success REAL, error TEXT);
 CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY, source TEXT NOT NULL, external_id TEXT NOT NULL, title TEXT NOT NULL, url TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '', parent_id TEXT, work_id TEXT NOT NULL, latest_event TEXT, updated_at REAL NOT NULL, UNIQUE(source, external_id));
@@ -43,7 +45,7 @@ def text(value, limit=2000):
     return value
 
 
-class Store(PresentationMixin):
+class Store(LifecycleMixin, PresentationMixin):
     def __init__(self, path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -52,10 +54,13 @@ class Store(PresentationMixin):
         self.db.row_factory = sqlite3.Row
         self.db.execute('PRAGMA journal_mode=WAL')
         self.db.execute('PRAGMA foreign_keys=ON')
-        self.db.executescript(SCHEMA)
+        self.db.executescript(SCHEMA+LIFECYCLE_SCHEMA)
         with self.db:
             for source in SOURCES:
                 self.db.execute('INSERT OR IGNORE INTO sources(name) VALUES (?)', (source,))
+            if not self._record('reference_index_v1',False) and self.db.execute('SELECT 1 FROM conversations LIMIT 1').fetchone():
+                for row in self.db.execute('SELECT id FROM conversations').fetchall():self.index_references(row[0])
+                self._put_record('reference_index_v1',True)
 
     def close(self):
         self.db.close()
@@ -64,7 +69,7 @@ class Store(PresentationMixin):
         self.db.execute('INSERT INTO changes(kind,entity_id,detail,at) VALUES (?,?,?,?)',
                         (kind, entity, detail, time.time()))
 
-    def ingest(self, source, items, checkpoint=None, scope='', complete=True):
+    def ingest(self, source, items, checkpoint=None, scope='', complete=True, targeted=False):
         if source not in SOURCES or not isinstance(items, list) or len(items) > 500:
             raise ValueError('Invalid source batch')
         now = time.time()
@@ -101,6 +106,7 @@ class Store(PresentationMixin):
                       VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title,url=excluded.url,model=excluded.model,parent_id=excluded.parent_id,latest_event=excluded.latest_event,updated_at=excluded.updated_at''',
                       (cid,source,external,title,url,text(item.get('model',''),200),parent,wid,eid,now))
                     self.db.execute('UPDATE work SET updated_at=? WHERE id=?', (now,wid))
+                    self.index_references(cid)
                     self.change('received',cid,title)
                     if source=='drive':
                         self.db.execute("UPDATE events SET analysis_state='metadata_only' WHERE id=?",(eid,))
@@ -110,9 +116,10 @@ class Store(PresentationMixin):
                 AND NOT EXISTS(SELECT 1 FROM manual_links m WHERE m.conversation_id=conversations.id)''')
             self.db.execute('UPDATE obligations SET work_id=(SELECT c.work_id FROM conversations c WHERE c.id=obligations.conversation_id)')
             state = 'current' if complete else 'partial'
-            self.db.execute('''UPDATE sources SET state=?,scope=?,checkpoint=CASE WHEN ? THEN ? ELSE checkpoint END,
-                 checked_at=?,last_success=CASE WHEN ? THEN ? ELSE last_success END,error=NULL WHERE name=?''',
-                 (state,scope,int(complete),json.dumps(checkpoint),now,int(complete),now,source))
+            if not targeted:
+                self.db.execute('''UPDATE sources SET state=?,scope=?,checkpoint=CASE WHEN ? THEN ? ELSE checkpoint END,
+                     checked_at=?,last_success=CASE WHEN ? THEN ? ELSE last_success END,error=NULL WHERE name=?''',
+                     (state,scope,int(complete),json.dumps(checkpoint),now,int(complete),now,source))
         return {'inserted':inserted, 'state':state}
 
     def source_failure(self, source, message):
@@ -431,10 +438,13 @@ class Store(PresentationMixin):
         return {'ok':True}
 
     def import_snapshot(self, payload):
-        if payload.get('schema_version') not in (1,2):raise ValueError('Unsupported export version')
+        if payload.get('schema_version') not in (1,2,3):raise ValueError('Unsupported export version')
         names=['sources','conversations','work','events','obligations','changes','jobs','meta','decisions','manual_links','return_points','job_leases','reminders','reminder_items','conversation_work_links']
+        extra=['source_references','context_requests','completion_reviews','completion_audit']
         tables=payload.get('tables')
         if payload.get('schema_version')==1 and isinstance(tables,dict):tables={**tables,'conversation_work_links':[]}
+        if payload.get('schema_version') in (1,2) and isinstance(tables,dict):tables={**tables,**{name:[] for name in extra}}
+        names+=extra
         if not isinstance(tables,dict) or set(tables)!=set(names):raise ValueError('Export tables do not match schema')
         if any(not isinstance(rows,list) or len(rows)>100000 for rows in tables.values()):raise ValueError('Invalid export size')
         work_ids={r['id'] for r in tables['work']};conversations={r['id'] for r in tables['conversations']};events={r['id'] for r in tables['events']}
@@ -458,10 +468,13 @@ class Store(PresentationMixin):
             # Carry unresolved work, but require explicit ownership reconciliation before dispatch.
             self.db.execute("UPDATE jobs SET state='held' WHERE state IN ('pending','running')")
             self.db.execute('DELETE FROM job_leases')
+            self.db.execute("UPDATE context_requests SET state='pending',lease_token=NULL,lease_until=NULL WHERE state='running'")
+            self.db.execute("UPDATE completion_reviews SET state='queued',lease_token=NULL,lease_until=NULL WHERE state='running'")
+            for row in self.db.execute('SELECT id FROM conversations').fetchall():self.index_references(row[0])
             self.db.execute("UPDATE events SET analysis_state='pending',lease_token=NULL,lease_until=NULL WHERE analysis_state='running'")
             self.db.execute("UPDATE reminders SET state='uncertain' WHERE state='sending'")
             self.change('import','ledger','Imported commitments and return points; unfinished agent jobs held for ownership reconciliation')
         return {'ok':True,'held_jobs':self.db.execute("SELECT count(*) FROM jobs WHERE state='held'").fetchone()[0]}
 
     def export(self):
-        return {'schema_version':2,'exported_at':time.time(), 'tables':{name:[dict(r) for r in self.db.execute('SELECT * FROM '+name)] for name in ['sources','conversations','work','events','obligations','changes','jobs','meta','decisions','manual_links','return_points','job_leases','reminders','reminder_items','conversation_work_links']}}
+        return {'schema_version':3,'exported_at':time.time(), 'tables':{name:[dict(r) for r in self.db.execute('SELECT * FROM '+name)] for name in ['sources','conversations','work','events','obligations','changes','jobs','meta','decisions','manual_links','return_points','job_leases','reminders','reminder_items','conversation_work_links','source_references','context_requests','completion_reviews','completion_audit']}}

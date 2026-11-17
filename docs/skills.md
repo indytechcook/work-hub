@@ -49,3 +49,7 @@ These skills do not install sources, change consent scopes, launch autonomous wo
 | “Install Slack” | Setup flow, not the daily follow-up skill; do not broaden grants. |
 
 Validation covers frontmatter/resource paths, documented RPC contracts and installed discovery. The read-only RPC path was checked against BB. No live ledger mutations or fresh-thread model-selection evaluation were performed for this documentation release; the scenarios above are a reproducible acceptance checklist rather than claimed model test results.
+
+## Completion review
+
+Use `work-hub-review-completion` to check unseen/open commitments through the durable plugin engine. It preserves evidence and separates assessment from applying a resolution. See [behavior and configuration](work-lifecycle.md).

@@ -231,7 +231,7 @@ After each source, check successful reads and coverage in Work Hub. Verify token
 ```bash
 .venv/bin/python -m unittest discover -s hub -p 'test_*.py'
 .venv/bin/python -m unittest discover -s connectors/google -p 'test_*.py'
-node --experimental-strip-types --test bb-plugin-work-hub/reference-links.test.ts bb-plugin-work-hub/launch-context.test.ts
+node --experimental-strip-types --test bb-plugin-work-hub/reference-links.test.ts bb-plugin-work-hub/launch-context.test.ts bb-plugin-work-hub/context-hook.test.ts
 ```
 
 From a BB thread in your Work Hub project, capture your own context:
@@ -252,6 +252,10 @@ bb work-hub status
 ```
 
 Analysis runs every 90 seconds; selected-source collection every ten minutes. BB-only use installs no external collector. Existing named jobs are preserved rather than overwritten. PATH is captured at install; changing CLI locations may require updating the job or the analyzer's absolute executable path.
+
+## Automatic context and completion checks
+
+After connector qualification, enable conversation linking and optional automatic review using [the work lifecycle guide](docs/work-lifecycle.md). These features retain the existing source opt-ins and analysis allowance. Confirm the `work-hub-review-completion` skill appears alongside the five original skills.
 
 ## 8. Acceptance checks and everyday use
 

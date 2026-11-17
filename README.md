@@ -21,9 +21,11 @@ Start with the 77-second overview, then explore [nine short workflow walkthrough
 - Supports full-screen, portrait-monitor and narrow-sidebar layouts.
 - Opens linked PRs/issues in BB's sidebar and provides related context inside threads.
 
+[Automatic context and completion review](docs/work-lifecycle.md) connects new conversations to their sources and checks whether commitments are already fulfilled.
+
 ## Daily workflow skills
 
-The plugin includes `work-hub`, `work-hub-plan`, `work-hub-resume`, `work-hub-follow-up`, and `work-hub-checkpoint`. Ask your AI to plan the day, resume work, review commitments, or save a return point. They use your configured Work Hub and work across BB providers; no personal orchestration skill is needed. See [skill usage and limits](docs/skills.md).
+The plugin includes `work-hub`, `work-hub-plan`, `work-hub-resume`, `work-hub-follow-up`, `work-hub-checkpoint`, and `work-hub-review-completion`. Ask your AI to plan the day, resume work, review commitments, or save a return point. They use your configured Work Hub and work across BB providers; no personal orchestration skill is needed. See [skill usage and limits](docs/skills.md).
 
 ## Architecture
 
@@ -58,7 +60,7 @@ Install dependencies using SETUP.md, then run:
 ```bash
 .venv/bin/python -m unittest discover -s hub -p 'test_*.py'
 .venv/bin/python -m unittest discover -s connectors/google -p 'test_*.py'
-node --experimental-strip-types --test bb-plugin-work-hub/reference-links.test.ts bb-plugin-work-hub/launch-context.test.ts
+node --experimental-strip-types --test bb-plugin-work-hub/reference-links.test.ts bb-plugin-work-hub/launch-context.test.ts bb-plugin-work-hub/context-hook.test.ts
 ./bb-plugin-work-hub/node_modules/.bin/tsc --noEmit -p bb-plugin-work-hub/tsconfig.json
 bb plugin build ./bb-plugin-work-hub
 ```

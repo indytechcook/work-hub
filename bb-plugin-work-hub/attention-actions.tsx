@@ -29,7 +29,7 @@ export function AttentionActions({item,disabled,onReview,onSeen,onChanged,onFocu
   {!item.seen&&<Menu.Item onSelect={onSeen}>Mark seen</Menu.Item>}
   {details===null&&!error&&<Menu.Item disabled>Loading allowed actions…</Menu.Item>}
   {error&&<Menu.Item disabled>Could not load actions. Close and retry.</Menu.Item>}
-  {mutable&&<><Menu.Separator/><Menu.Label>Commitment{item.work_ids.length>1?' · shared across work':''}</Menu.Label>
+  {mutable&&<><Menu.Item onSelect={async()=>{try{await rpc.call('queueCompletion',{scope:'selected',ids:[obligation.id]});onChanged()}catch(e){setError(String(e))}}}>Check completion</Menu.Item><Menu.Separator/><Menu.Label>Commitment{item.work_ids.length>1?' · shared across work':''}</Menu.Label>
    {obligation.state==='needs_review'&&<Menu.Item onSelect={()=>void mutate('obligation',obligation.id,'open',obligation.version)}>Confirm commitment</Menu.Item>}
    <Menu.Item onSelect={()=>void mutate('obligation',obligation.id,'fulfilled',obligation.version)}>Mark fulfilled</Menu.Item>
    <Menu.Item onSelect={()=>void mutate('obligation',obligation.id,'cancelled',obligation.version)}>Cancel commitment</Menu.Item>
