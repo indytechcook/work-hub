@@ -45,6 +45,29 @@ Configuration and OAuth credentials default to BB’s encrypted Env Catalog, wit
 
 Python owns the ledger and collectors; a TypeScript plugin supplies the BB interface. Background analysis can use Claude Code or Codex independently of interactive BB model choices. A Claude-only user does not need Codex.
 
+## Data model
+
+A **work item** groups related conversations and source records around an outcome. A conversation can belong to several work items; its commitments and decisions are shared across them without duplicate records. Each commitment has one status.
+
+```mermaid
+erDiagram
+  work ||--o{ "work_memberships (view)" : groups
+  conversations ||--|{ "work_memberships (view)" : "belongs through"
+  conversations ||--o{ events : receives
+  conversations ||--o| return_points : "has latest summary"
+  events ||--o{ obligations : "provides evidence for"
+  events ||--o{ decisions : "provides evidence for"
+  obligations ||--o| completion_reviews : "has current review"
+```
+
+These are SQLite names: **`work_memberships` is a view** combining each conversation's primary work with additional links; the other boxes are tables. Lines describe application relationships, not declared SQL foreign keys. A crow's foot means “many”; a circle allows zero.
+
+- **Events preserve provenance:** versioned source excerpts, source/receipt times, and analysis state. Commitments (`obligations`) and accepted decisions point back to an event and its quoted evidence.
+- **Return points preserve context:** `return_points` holds the latest asynchronous model summary and suggested next action per conversation. Immediate agent handoffs and your chosen next action live separately as JSON records in `meta`; an agent report does not prove completion.
+- **Context and completion have their own lifecycle:** source references connect related evidence, context requests track pending reads, and completion reviews retain assessments and an audit history. Marking an arrival seen or a work item done does not fulfill its commitments.
+
+See the [detailed data model](docs/data-model.md) for membership storage, JSON metadata, review evidence and a synthetic example. Configuration and credentials use a [separate storage layer](docs/storage.md).
+
 ## Status and boundaries
 
 Experimental, single-user, local-first software. The documented background setup targets macOS and requires the computer to be awake and logged in. No public laptop ports or cloud workers are needed. Model analysis sends selected source excerpts to the chosen provider; it is not local inference.
