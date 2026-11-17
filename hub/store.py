@@ -12,6 +12,7 @@ from presentation import PresentationMixin
 from tracking import TrackingMixin
 from handoffs import HandoffMixin
 from source_preview import slack_preview
+from labels import LabelMixin, slack_label, slack_search_text
 
 from lifecycle import LifecycleMixin, SCHEMA as LIFECYCLE_SCHEMA
 
@@ -48,13 +49,14 @@ def text(value, limit=2000):
     return value
 
 
-class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin):
+class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, LabelMixin):
     def __init__(self, path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.db = sqlite3.connect(path, timeout=20)
         os.chmod(path, 0o600)
         self.db.row_factory = sqlite3.Row
+        self.db.create_function('slack_search_text',1,slack_search_text,deterministic=True)
         self.db.execute('PRAGMA journal_mode=WAL')
         self.db.execute('PRAGMA foreign_keys=ON')
         self.db.executescript(SCHEMA+LIFECYCLE_SCHEMA)
@@ -362,12 +364,13 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin):
         return o
 
     def _work_detail(self, row):
-        w=dict(row)
+        w=self.label_work_rows([dict(row)])[0]
         w['intent']=self.intent(w['id'])
         w['decisions']=[dict(r) for r in self.db.execute('SELECT d.id,d.conversation_id,d.text,d.quote,d.evidence_event event_id FROM decisions d JOIN work_memberships m ON m.conversation_id=d.conversation_id WHERE m.work_id=?',(w['id'],))]
         w['conversations']=[dict(r) for r in self.db.execute('SELECT c.id,c.source,c.external_id,c.title,c.url,c.model,c.updated_at,r.summary,r.next_action,r.updated_at checkpoint_at,e.analysis_state,e.occurred_at latest_occurred_at,CASE WHEN c.source="slack" THEN e.text ELSE NULL END preview_text FROM conversations c JOIN work_memberships m ON m.conversation_id=c.id LEFT JOIN return_points r ON r.conversation_id=c.id LEFT JOIN events e ON e.id=c.latest_event WHERE m.work_id=? ORDER BY c.updated_at DESC',(w['id'],))]
         for c in w['conversations']:
             c['preview']=slack_preview(c.pop('preview_text'))
+            if c['source']=='slack':c['title']=slack_label(c['title'],c['preview'],c['external_id'])
             c['work_ids']=self._work_ids(c['id'])
             c['checkpoint']=self._record('checkpoint:'+c['id'],None)
             c['handoff']=self.handoff(c['id'])
@@ -406,8 +409,8 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin):
         if not self.db.execute('SELECT 1 FROM conversations WHERE id=?',(conversation_id,)).fetchone():raise ValueError('Unknown conversation')
         linked=[dict(r) for r in self.db.execute('SELECT w.id,w.title,w.status FROM work w JOIN work_memberships m ON m.work_id=w.id WHERE m.conversation_id=? ORDER BY w.title',(conversation_id,))]
         # instr treats search text literally, including SQL wildcard characters.
-        options=[dict(r) for r in self.db.execute("SELECT w.id,w.title,w.status FROM work w WHERE instr(lower(w.title),lower(?))>0 AND NOT EXISTS(SELECT 1 FROM work_memberships m WHERE m.work_id=w.id AND m.conversation_id=?) AND EXISTS(SELECT 1 FROM work_memberships m WHERE m.work_id=w.id) ORDER BY w.updated_at DESC,w.id LIMIT 51",(query,conversation_id))]
-        return {'linked':linked,'options':options[:50],'has_more':len(options)>50}
+        options=[dict(r) for r in self.db.execute("SELECT w.id,w.title,w.status FROM work w WHERE (instr(lower(w.title),lower(?))>0 OR EXISTS(SELECT 1 FROM work_memberships sm JOIN conversations sc ON sc.id=sm.conversation_id JOIN events se ON se.id=sc.latest_event WHERE sm.work_id=w.id AND sc.source='slack' AND instr(lower(se.text || ' ' || slack_search_text(se.text)),lower(?))>0)) AND NOT EXISTS(SELECT 1 FROM work_memberships m WHERE m.work_id=w.id AND m.conversation_id=?) AND EXISTS(SELECT 1 FROM work_memberships m WHERE m.work_id=w.id) ORDER BY w.updated_at DESC,w.id LIMIT 51",(query,query,conversation_id))]
+        return {'linked':self.label_work_rows(linked),'options':self.label_work_rows(options[:50]),'has_more':len(options)>50}
 
     def thread_context(self, thread_id, work_id=None):
         if not isinstance(thread_id,str) or not thread_id.startswith('thr_') or len(thread_id)>100:
@@ -417,7 +420,7 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin):
         # A removed selection falls back to this thread's current primary work.
         selected=work_id if work_id in {w['id'] for w in associated} else (c['work_id'] if c else None)
         row=self.db.execute('SELECT * FROM work WHERE id=?',(selected,)).fetchone() if selected else None
-        return {'work':self._work_detail(row) if row else None,'associated_work':associated,
+        return {'work':self._work_detail(row) if row else None,'associated_work':self.label_work_rows(associated),
                 'obligations':[self._obligation_detail(r) for r in self.db.execute("SELECT o.* FROM obligations o JOIN work_memberships m ON m.conversation_id=o.conversation_id WHERE m.work_id=? AND o.state IN ('open','needs_review') ORDER BY o.due_at IS NULL,o.due_at,o.updated_at DESC",(row['id'],))] if row else [],
                 'now':time.time()}
 
@@ -435,7 +438,7 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin):
         last_seen=int(seen[0]) if seen else 0
         attention=self.attention(now)
         return {'legacy':{k:v for k,v in self.legacy_page().items() if k!='items'},'attention':attention[:100],'attention_total':len(attention),'attention_unseen':sum(not a['seen'] for a in attention),'today':self.day_plan(),'previous_day':self.previous_day_plan(),'work':work,'obligations':[self._obligation_detail(r) for r in self.db.execute("SELECT * FROM obligations WHERE state IN ('open','needs_review') ORDER BY due_at IS NULL,due_at,updated_at DESC LIMIT 250")],
-                'sources':sources,'changes':[dict(r) for r in self.db.execute("SELECT * FROM changes WHERE seq>? AND NOT EXISTS(SELECT 1 FROM meta WHERE key='change_seen:'||changes.seq) ORDER BY seq DESC LIMIT 100",(last_seen,))],
+                'sources':sources,'changes':self.label_changes([dict(r) for r in self.db.execute("SELECT * FROM changes WHERE seq>? AND NOT EXISTS(SELECT 1 FROM meta WHERE key='change_seen:'||changes.seq) ORDER BY seq DESC LIMIT 100",(last_seen,))]),
                 'analysis':dict(self.db.execute("SELECT SUM(analysis_state='pending') pending,SUM(analysis_state='running') running,SUM(analysis_error IS NOT NULL) errors FROM events").fetchone()),
                 'analyzer':json.loads(self.db.execute("SELECT value FROM meta WHERE key='analyzer_last_result'").fetchone()[0]) if self.db.execute("SELECT 1 FROM meta WHERE key='analyzer_last_result'").fetchone() else None,
                 'reminders':[dict(r) for r in self.db.execute('SELECT id,day,state,created_at,finished_at FROM reminders ORDER BY created_at DESC LIMIT 20')],

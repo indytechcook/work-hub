@@ -126,8 +126,9 @@ class PresentationMixin:
           AND (?='all' OR w.status=?) AND (instr(lower(w.title),lower(?))>0
           OR EXISTS(SELECT 1 FROM conversations c JOIN work_memberships m ON m.conversation_id=c.id WHERE m.work_id=w.id AND instr(lower(c.title),lower(?))>0)
           OR EXISTS(SELECT 1 FROM obligations o JOIN work_memberships m ON m.conversation_id=o.conversation_id WHERE m.work_id=w.id AND instr(lower(o.title),lower(?))>0)
-          OR EXISTS(SELECT 1 FROM meta WHERE key='intent:'||w.id AND instr(lower(value),lower(?))>0))"""
-        args=(status,status,query,query,query,query)
+          OR EXISTS(SELECT 1 FROM meta WHERE key='intent:'||w.id AND instr(lower(value),lower(?))>0)
+          OR EXISTS(SELECT 1 FROM work_memberships sm JOIN conversations sc ON sc.id=sm.conversation_id JOIN events se ON se.id=sc.latest_event WHERE sm.work_id=w.id AND sc.source='slack' AND instr(lower(se.text || ' ' || slack_search_text(se.text)),lower(?))>0))"""
+        args=(status,status,query,query,query,query,query)
         total=self.db.execute('SELECT COUNT(*) FROM work w WHERE '+where,args).fetchone()[0]
         rows=self.db.execute('SELECT w.* FROM work w WHERE '+where+' ORDER BY w.focus DESC,w.updated_at DESC,w.id LIMIT 50 OFFSET ?',(*args,offset)).fetchall()
         items=[]
@@ -135,4 +136,4 @@ class PresentationMixin:
             w=dict(row);intent=self.intent(w['id'])
             count=self.db.execute("SELECT COUNT(*) FROM obligations o JOIN work_memberships m ON m.conversation_id=o.conversation_id WHERE m.work_id=? AND o.state IN ('open','needs_review')",(w['id'],)).fetchone()[0]
             items.append(dict(id=w['id'],title=w['title'],status=w['status'],focus=w['focus'],project=intent['project'],next_action=intent['next_action'] or w['next_action'],open_count=count))
-        return dict(items=items,total=total,has_more=offset+len(items)<total)
+        return dict(items=self.label_work_rows(items),total=total,has_more=offset+len(items)<total)

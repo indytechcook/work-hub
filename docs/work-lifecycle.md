@@ -74,3 +74,8 @@ printf '%s' '{"op":"configure_tracking","args":{"teams":["TRACK"]}}' | .venv/bin
 This stores portable tracking-role policy in the ledger. It does **not** pause external automations. Captured Linear records from those teams remain readable but skip new extraction, and cannot supply automatic source-match candidates. Existing unresolved commitments move to the visible **old tracking board** reconciliation queue, with a count of past due dates. No obligation or external issue is deleted or closed. Choose **Keep for follow-up** to retain a real commitment in normal attention/reminder/review behavior, or review its evidence and explicitly resolve/cancel a duplicate. Keeping does not confirm an ambiguous commitment's ownership.
 
 To reverse the policy, supply an empty `teams` list. Pending latest reference-only receipts become eligible for analysis again; previous data and choices remain. Never retire a real team merely because its issues are also linked from Slack.
+
+
+## Recognizing Slack conversations
+
+Slack labels use captured parent-message authors, UTC dates/times and a bounded message excerpt throughout work lists, association selectors, thread context and source links. Association and work search also match captured Slack authors/message text. These are display labels: original titles, source URLs, work IDs, associations and commitment state remain unchanged. Missing previews are labeled unavailable; thread timestamps provide a fallback when known. Custom work titles are preserved. No additional Slack request or model call is needed.
