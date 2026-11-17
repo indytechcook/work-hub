@@ -83,7 +83,7 @@ Install dependencies using SETUP.md, then run:
 ```bash
 .venv/bin/python -m unittest discover -s hub -p 'test_*.py'
 .venv/bin/python -m unittest discover -s connectors/google -p 'test_*.py'
-node --experimental-strip-types --test bb-plugin-work-hub/reference-links.test.ts bb-plugin-work-hub/launch-context.test.ts bb-plugin-work-hub/context-hook.test.ts
+node --experimental-strip-types --test bb-plugin-work-hub/reference-links.test.ts bb-plugin-work-hub/launch-context.test.ts bb-plugin-work-hub/context-hook.test.ts bb-plugin-work-hub/handoff-hook.test.ts
 ./bb-plugin-work-hub/node_modules/.bin/tsc --noEmit -p bb-plugin-work-hub/tsconfig.json
 bb plugin build ./bb-plugin-work-hub
 ```

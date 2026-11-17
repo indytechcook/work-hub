@@ -44,7 +44,8 @@ class LifecycleMixin:
             parent=self.db.execute("SELECT work_id FROM conversations WHERE source='bb' AND external_id=?",(parent_id,)).fetchone() if parent_id else None
             candidates=set()
             for ref in refs:
-                candidates.update(r[0] for r in self.db.execute("SELECT DISTINCT m.work_id FROM source_references r JOIN work_memberships m ON m.conversation_id=r.conversation_id JOIN work w ON w.id=m.work_id WHERE r.key=? AND w.status!='done' AND r.conversation_id<>?",(ref['key'],cid)))
+                matches=self.db.execute("SELECT DISTINCT m.work_id,c.source,c.external_id FROM source_references r JOIN conversations c ON c.id=r.conversation_id JOIN work_memberships m ON m.conversation_id=r.conversation_id JOIN work w ON w.id=m.work_id WHERE r.key=? AND w.status!='done' AND r.conversation_id<>?",(ref['key'],cid))
+                candidates.update(r['work_id'] for r in matches if not self.is_tracking(r['source'],r['external_id']))
             repeated=bool(re.search(r'\b(again|another|repeat|redo|re-run)\b',prompt,re.I))
             if repeated and not old and candidates:
                 # A new explicit occurrence must not reuse an already fulfilled request.
@@ -77,7 +78,7 @@ class LifecycleMixin:
                 row=self.db.execute('SELECT text FROM events WHERE id=(SELECT latest_event FROM conversations WHERE id=?)',(c['id'],)).fetchone()
                 sources.append({'source':c['source'],'url':c['url'],'title':c['title'],'text':row['text'][:1800] if row else ''})
         requests=[dict(r) for r in self.db.execute('SELECT url,state,error FROM context_requests WHERE thread_id=? ORDER BY updated_at DESC LIMIT 30',(thread_id,))]
-        return {'thread_id':thread_id,'work':({'id':context['work']['id'],'title':context['work']['title'],'next_action':context['work']['intent']['next_action'] or context['work']['next_action']} if context['work'] else None),'associated_work':context['associated_work'],'commitments':context['obligations'][:20],'sources':sources,'requests':requests,'candidates':self._record('context_candidates:'+thread_id,[]),'prior_work':self._record('prior_context:'+thread_id,[]),'untrusted_source_data':True}
+        return {'return_points':self.context_handoffs(context['work'],thread_id),'thread_id':thread_id,'work':({'id':context['work']['id'],'title':context['work']['title'],'next_action':context['work']['intent']['next_action'] or context['work']['next_action']} if context['work'] else None),'associated_work':context['associated_work'],'commitments':context['obligations'][:20],'sources':sources,'requests':requests,'candidates':self._record('context_candidates:'+thread_id,[]),'prior_work':self._record('prior_context:'+thread_id,[]),'untrusted_source_data':True}
 
     def claim_context(self, thread_id=None):
         now=time.time()
@@ -114,6 +115,7 @@ class LifecycleMixin:
         selected=set(ids or []);now=time.time();count=0
         with self.db:
             for row in self.db.execute("SELECT id,version FROM obligations WHERE state IN ('open','needs_review')").fetchall():
+                if self.is_legacy_obligation(row['id']):continue
                 if (scope=='unseen' and row['id'] not in unseen) or (scope=='selected' and row['id'] not in selected):continue
                 self.db.execute("INSERT INTO completion_reviews(obligation_id,requested_at) VALUES (?,?) ON CONFLICT(obligation_id) DO UPDATE SET state=CASE WHEN completion_reviews.state='running' THEN 'running' ELSE 'queued' END,requested_at=excluded.requested_at,not_before=0,error=NULL",(row['id'],now));count+=1
         return {'queued':count}
@@ -138,7 +140,8 @@ class LifecycleMixin:
         now=time.time()
         with self.db:
             self.db.execute('BEGIN IMMEDIATE')
-            row=self.db.execute("SELECT r.obligation_id FROM completion_reviews r JOIN obligations o ON o.id=r.obligation_id WHERE o.state IN ('open','needs_review') AND r.not_before<=? AND (r.state IN ('queued','error') OR (r.state='running' AND r.lease_until<?)) ORDER BY r.requested_at LIMIT 1",(now,now)).fetchone()
+            row=self.db.execute("SELECT r.obligation_id FROM completion_reviews r JOIN obligations o ON o.id=r.obligation_id WHERE o.state IN ('open','needs_review') AND r.not_before<=? AND (r.state IN ('queued','error') OR (r.state='running' AND r.lease_until<?)) ORDER BY r.requested_at",(now,now)).fetchall()
+            row=next((r for r in row if not self.is_legacy_obligation(r[0])),None)
             if not row:return None
             token=str(uuid.uuid4());obligation=dict(self.db.execute('SELECT * FROM obligations WHERE id=?',(row[0],)).fetchone())
             self.db.execute("UPDATE completion_reviews SET state='running',lease_token=?,lease_until=?,obligation_version=? WHERE obligation_id=?",(token,now+600,obligation['version'],row[0]))
@@ -181,6 +184,7 @@ class LifecycleMixin:
     def resolve_completion(self, obligation_id):
         with self.db:
             self.db.execute('BEGIN IMMEDIATE')
+            if self.is_legacy_obligation(obligation_id):raise ValueError('Reconcile this legacy commitment before applying completion')
             row=self.db.execute("SELECT * FROM completion_reviews WHERE obligation_id=? AND state='done' AND verdict='confirmed_complete'",(obligation_id,)).fetchone()
             if not row:raise ValueError('No confirmed completion to apply')
             evidence=json.loads(row['evidence'])

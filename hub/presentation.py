@@ -82,6 +82,7 @@ class PresentationMixin:
         result=[]
         for row in rows:
             o=dict(row);reason=None;rank=4
+            if self.is_legacy_obligation(o['id']):continue
             if o['state']=='needs_review':reason='Confirm this captured commitment';rank=1
             elif o['due_at'] is not None and o['due_at']<=now:reason='Overdue commitment';rank=0
             elif o['due_at'] is not None and o['due_at']<=end:reason='Commitment due today';rank=2
@@ -94,6 +95,11 @@ class PresentationMixin:
             result.append(dict(token=token,kind='obligation',entity_id=o['id'],title=o['title'],reason=reason,rank=rank,
                 work_ids=self._work_ids(o['conversation_id']),source=o['source'],at=o['updated_at'],occurred_at=o['occurred_at'],received_at=o['received_at'],
                 seen=self._record('attention_seen:'+token,None) is not None))
+        for c in self.db.execute("SELECT id,title FROM conversations WHERE source='bb'"):
+            h=self.handoff(c['id'])
+            if not h or h['status'] not in ('blocked','needs_input','failed','ready_for_review'):continue
+            token=fingerprint('handoff',c['id'],h['turn_at'],h['status'],h['next_action'],h['blocker'])
+            result.append(dict(token=token,kind='handoff',entity_id=c['id'],title=c['title'],reason=h['blocker'] or ('Agent report ready for review' if h['status']=='ready_for_review' else 'Agent needs your attention'),rank=1,work_ids=self._work_ids(c['id']),source='bb',at=h['at'],occurred_at=h['at'],received_at=h['at'],seen=self._record('attention_seen:'+token,None) is not None))
         for row in self.db.execute("SELECT * FROM jobs WHERE state IN ('failed','error','uncertain','held')"):
             j=dict(row);token=fingerprint('job',j['id'],j['state'])
             result.append(dict(token=token,kind='job',entity_id=j['id'],title=j['source_key'],reason='Agent job '+j['state']+'; inspect before retrying',rank=0,work_ids=[],source=j['kind'],at=j['updated_at'],occurred_at=None,received_at=None,seen=self._record('attention_seen:'+token,None) is not None))

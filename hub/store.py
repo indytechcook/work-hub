@@ -9,6 +9,8 @@ from datetime import datetime
 from settings import timezone as local_timezone
 from pathlib import Path
 from presentation import PresentationMixin
+from tracking import TrackingMixin
+from handoffs import HandoffMixin
 from source_preview import slack_preview
 
 from lifecycle import LifecycleMixin, SCHEMA as LIFECYCLE_SCHEMA
@@ -46,7 +48,7 @@ def text(value, limit=2000):
     return value
 
 
-class Store(LifecycleMixin, PresentationMixin):
+class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin):
     def __init__(self, path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -109,6 +111,9 @@ class Store(LifecycleMixin, PresentationMixin):
                     self.db.execute('UPDATE work SET updated_at=? WHERE id=?', (now,wid))
                     self.index_references(cid)
                     self.change('received',cid,title)
+                    if source=='bb':self.capture_handoff(cid,body,occurred)
+                    if self.is_tracking(source,external):
+                        self.db.execute("UPDATE events SET analysis_state='reference_only' WHERE id=?",(eid,))
                     if source=='drive':
                         self.db.execute("UPDATE events SET analysis_state='metadata_only' WHERE id=?",(eid,))
             # Reconcile parents that arrived later without undoing explicit manual links.
@@ -323,7 +328,8 @@ class Store(LifecycleMixin, PresentationMixin):
             self.db.execute('BEGIN IMMEDIATE')
             self.db.execute("UPDATE reminders SET state='uncertain' WHERE state='sending' AND created_at<?",(now-120,))
             if self.db.execute("SELECT COUNT(*) FROM reminders WHERE day=? AND state IN ('sending','sent','uncertain')",(day,)).fetchone()[0]>=3:return None
-            rows=self.db.execute("SELECT id,due_at FROM obligations o WHERE state='open' AND due_at<=? AND NOT EXISTS(SELECT 1 FROM reminder_items i WHERE i.obligation_id=o.id AND i.due_at=o.due_at AND i.day=?) ORDER BY due_at LIMIT 50",(now,day)).fetchall()
+            rows=self.db.execute("SELECT id,due_at FROM obligations o WHERE state='open' AND due_at<=? AND NOT EXISTS(SELECT 1 FROM reminder_items i WHERE i.obligation_id=o.id AND i.due_at=o.due_at AND i.day=?) ORDER BY due_at",(now,day)).fetchall()
+            rows=[r for r in rows if not self.is_legacy_obligation(r['id'])][:50]
             if not rows:return None
             rid=str(uuid.uuid4());payload=[dict(r) for r in rows]
             self.db.execute("INSERT INTO reminders VALUES (?,?,?,'sending',?,NULL)",(rid,day,json.dumps(payload),now))
@@ -335,6 +341,7 @@ class Store(LifecycleMixin, PresentationMixin):
             row=self.db.execute("SELECT * FROM reminders WHERE id=? AND state='sending'",(id,)).fetchone()
             if not row:return None
             active=self.db.execute("SELECT o.id FROM obligations o JOIN reminder_items i ON i.obligation_id=o.id WHERE i.reminder_id=? AND o.state='open' AND o.due_at=i.due_at",(id,)).fetchall()
+            active=[r for r in active if not self.is_legacy_obligation(r['id'])]
             if not active:
                 self.db.execute("UPDATE reminders SET state='cancelled',finished_at=? WHERE id=?",(time.time(),id));return None
             return {'count':len(active)}
@@ -363,6 +370,8 @@ class Store(LifecycleMixin, PresentationMixin):
             c['preview']=slack_preview(c.pop('preview_text'))
             c['work_ids']=self._work_ids(c['id'])
             c['checkpoint']=self._record('checkpoint:'+c['id'],None)
+            c['handoff']=self.handoff(c['id'])
+            c['role']='tracking_archive' if self.is_tracking(c['source'],c['external_id']) else 'source'
         return w
 
     def associate(self, conversation_id, work_id, action):
@@ -425,7 +434,7 @@ class Store(LifecycleMixin, PresentationMixin):
         seen=self.db.execute("SELECT value FROM meta WHERE key='last_seen_seq'").fetchone()
         last_seen=int(seen[0]) if seen else 0
         attention=self.attention(now)
-        return {'attention':attention[:100],'attention_total':len(attention),'attention_unseen':sum(not a['seen'] for a in attention),'today':self.day_plan(),'previous_day':self.previous_day_plan(),'work':work,'obligations':[self._obligation_detail(r) for r in self.db.execute("SELECT * FROM obligations WHERE state IN ('open','needs_review') ORDER BY due_at IS NULL,due_at,updated_at DESC LIMIT 250")],
+        return {'legacy':{k:v for k,v in self.legacy_page().items() if k!='items'},'attention':attention[:100],'attention_total':len(attention),'attention_unseen':sum(not a['seen'] for a in attention),'today':self.day_plan(),'previous_day':self.previous_day_plan(),'work':work,'obligations':[self._obligation_detail(r) for r in self.db.execute("SELECT * FROM obligations WHERE state IN ('open','needs_review') ORDER BY due_at IS NULL,due_at,updated_at DESC LIMIT 250")],
                 'sources':sources,'changes':[dict(r) for r in self.db.execute("SELECT * FROM changes WHERE seq>? AND NOT EXISTS(SELECT 1 FROM meta WHERE key='change_seen:'||changes.seq) ORDER BY seq DESC LIMIT 100",(last_seen,))],
                 'analysis':dict(self.db.execute("SELECT SUM(analysis_state='pending') pending,SUM(analysis_state='running') running,SUM(analysis_error IS NOT NULL) errors FROM events").fetchone()),
                 'analyzer':json.loads(self.db.execute("SELECT value FROM meta WHERE key='analyzer_last_result'").fetchone()[0]) if self.db.execute("SELECT 1 FROM meta WHERE key='analyzer_last_result'").fetchone() else None,

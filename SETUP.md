@@ -231,7 +231,7 @@ After each source, check successful reads and coverage in Work Hub. Verify token
 ```bash
 .venv/bin/python -m unittest discover -s hub -p 'test_*.py'
 .venv/bin/python -m unittest discover -s connectors/google -p 'test_*.py'
-node --experimental-strip-types --test bb-plugin-work-hub/reference-links.test.ts bb-plugin-work-hub/launch-context.test.ts bb-plugin-work-hub/context-hook.test.ts
+node --experimental-strip-types --test bb-plugin-work-hub/reference-links.test.ts bb-plugin-work-hub/launch-context.test.ts bb-plugin-work-hub/context-hook.test.ts bb-plugin-work-hub/handoff-hook.test.ts
 ```
 
 From a BB thread in your Work Hub project, capture your own context:

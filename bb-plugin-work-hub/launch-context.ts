@@ -13,6 +13,8 @@ export function launchContext(snapshot: Snapshot, workId: string, obligationId?:
   '## '+(work.intent?.next_action?'User-chosen next action':'Suggested next action')+'\n'+quote(work.intent?.next_action||work.next_action||'Determine the next useful step.'),
   '## Sources and related conversations\n'+work.conversations.slice(0,20).map(c=>quote(`${c.title} (${c.source})\n${c.url}${c.next_action?'\nReturn point: '+c.next_action:''}`)).join('\n\n'),
  ];
+ const handoffs=work.conversations.filter(c=>c.handoff).sort((a,b)=>b.handoff!.at-a.handoff!.at).slice(0,5);
+ if(handoffs.length)sections.push('## Agent-reported return points — completion is unverified\n'+handoffs.map(c=>quote(c.title+'\n'+JSON.stringify(c.handoff))).join('\n\n'));
  if(work.decisions.length)sections.push('## Captured decisions\n'+work.decisions.slice(0,10).map(d=>quote(d.text+'\nEvidence: '+d.quote)).join('\n\n'));
  const followUps=selected?[selected]:obligations.slice(0,10);
  if(followUps.length)sections.push('## '+(selected?'Selected follow-up':'Open follow-ups')+'\n'+followUps.map(o=>quote(`${o.title}\nOwner: ${o.owner}; ${o.state}${o.due_at?'; due '+new Date(o.due_at*1000).toISOString():''}\nEvidence: ${o.evidence_quote}`)).join('\n\n'));

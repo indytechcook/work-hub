@@ -64,3 +64,10 @@ Do not upload private `.state`, logs, exports or raw scan matches to public issu
 ## Encrypted storage follow-up
 
 The configuration/credential update adds BB Env Catalog (0.3.3) as the default, explicit environment/JSON overrides, read-back migration verification, and refresh writeback. 93 hub tests and 12 Google adapter tests pass, alongside eight TypeScript tests, typecheck and plugin build. A source-only Gitleaks scan found no secrets. The installed application passed bounded Google/Slack account reads, authenticated Better Stack/Granola tool discovery, a Work Hub snapshot, and analyzer restart. These live checks do not establish fresh-machine setup or cryptographic correctness of the catalog plugin.
+
+
+## Return-point and tracking-ownership follow-up
+
+Immediate handoffs use the existing BB-capture opt-in and local stdio boundary. The agent tool scopes writes to its executing thread and takes the turn timestamp from BB. Source text remains plain React text; checkpoints cannot close obligations or replace chosen intent. Reconciliation preserves original obligations and exact evidence; legacy roles are explicit, reversible and excluded from automatic matching/extraction. Existing completion recommendations cannot resolve a pending legacy commitment.
+
+Validation includes stale-turn rejection, restart/export persistence, capture idempotency, protected intent, bounded context, legacy preservation, in-flight extraction invalidation, source matching and reminder starvation. The installed UI was checked for the reconciliation banner, paginated preserved commitments and an unverified captured return point. npm audit and pinned Python pip-audit reported no known advisories. Source-only Gitleaks found no leaks. Bandit reported the same six fixed-fragment/allowlisted SQL construction warnings in the reviewed core; the new handoff/tracking modules reported no findings. These checks do not establish that an external board-writing routine was disabled; that action must be verified in its owning service.

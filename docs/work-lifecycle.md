@@ -57,3 +57,20 @@ Automatic resolution defaults off. If explicitly enabled, only current confirmed
 Ledger export schema 3 includes reference identities, context jobs, review state and assessment history. Schemas 1 and 2 still import; interrupted jobs recover conservatively. Credentials remain in the configured storage backend, outside the ledger export.
 
 Synthetic tests cover repeat requests, exact identity matching, manual association preservation, full inventories, source failures, stale evidence, version conflicts, retry leases, checkpoint preservation and dispatch wait bounds. BB's dispatch hook remains an experimental SDK API. Source coverage and model interpretation remain imperfect: read the evidence when deciding whether a commitment is fulfilled.
+
+
+## Immediate return points and tracking ownership
+
+With BB collection enabled, Work Hub captures idle, failed and pending-interaction states immediately, with periodic reconciliation for missed events. Final reports are labeled **captured BB state**, not verified completion. Agents can use `work_hub_checkpoint` for structured progress, remaining work, next action, blockers and evidence. These writes require no background analyzer budget. The latest return point appears in work context, the resume picker and new-agent context. Blocked, failed, input-needed and review-ready reports can enter attention; routine idle reports do not.
+
+Chosen intent and commitments remain separate. Checkpoints cannot close work or promises. Old reports cannot overwrite a newer turn, and repeated captures do not create repeat alerts. Collection retains its existing seven-day/unarchived scope; events during downtime outside that scope are not guaranteed to be recovered.
+
+Personal tracking belongs in Work Hub; team issues and required change records remain in Linear. To retire a duplicate tracking team, first stop its writer/automation in the owning service and preserve a private ledger backup. Then invoke the local stdio API with the team's actual key (the example `TRACK` is synthetic):
+
+```bash
+printf '%s' '{"op":"configure_tracking","args":{"teams":["TRACK"]}}' | .venv/bin/python hub/cli.py
+```
+
+This stores portable tracking-role policy in the ledger. It does **not** pause external automations. Captured Linear records from those teams remain readable but skip new extraction, and cannot supply automatic source-match candidates. Existing unresolved commitments move to the visible **old tracking board** reconciliation queue, with a count of past due dates. No obligation or external issue is deleted or closed. Choose **Keep for follow-up** to retain a real commitment in normal attention/reminder/review behavior, or review its evidence and explicitly resolve/cancel a duplicate. Keeping does not confirm an ambiguous commitment's ownership.
+
+To reverse the policy, supply an empty `teams` list. Pending latest reference-only receipts become eligible for analysis again; previous data and choices remain. Never retire a real team merely because its issues are also linked from Slack.

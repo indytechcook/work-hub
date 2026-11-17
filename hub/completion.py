@@ -20,7 +20,8 @@ def sweep(store, enabled):
     now=time.time()
     with store.db:
         # Due review selection is durable and bounded; unchanged evidence is cached.
-        rows=store.db.execute("SELECT o.id FROM obligations o LEFT JOIN completion_reviews r ON r.obligation_id=o.id WHERE o.state IN ('open','needs_review') AND (r.obligation_id IS NULL OR (r.state='done' AND r.checked_at<?)) ORDER BY COALESCE(r.checked_at,0),o.updated_at DESC LIMIT 30",(now-21600,)).fetchall()
+        rows=store.db.execute("SELECT o.id FROM obligations o LEFT JOIN completion_reviews r ON r.obligation_id=o.id WHERE o.state IN ('open','needs_review') AND (r.obligation_id IS NULL OR (r.state='done' AND r.checked_at<?)) ORDER BY COALESCE(r.checked_at,0),o.updated_at DESC",(now-21600,)).fetchall()
+    rows=[r for r in rows if not store.is_legacy_obligation(r[0])][:30]
     if rows:store.queue_completion('selected',[r[0] for r in rows])
 
 

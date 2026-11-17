@@ -3,19 +3,24 @@ import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { defineRpcContract, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
+import {registerHandoffs} from './handoff-hook';
 import {registerContextHook} from './context-hook';
 import { launchContext } from './launch-context';
 
 const intent=z.object({next_action:z.string(),purpose:z.string(),project:z.string(),thread_id:z.string().nullable(),version:z.number(),updated_at:z.number().nullable()});
 const checkpoint=z.object({event_id:z.string(),occurred_at:z.number(),received_at:z.number(),analyzed_at:z.number()});
-const conversation = z.object({preview:z.object({text:z.string(),author:z.string(),at:z.number(),replies:z.number().nullable()}).nullable().optional(),work_ids:z.array(z.string()),id:z.string(),source:z.string(),external_id:z.string(),title:z.string(),url:z.string(),model:z.string(),updated_at:z.number(),summary:z.string().nullable(),next_action:z.string().nullable(),checkpoint_at:z.number().nullable(),analysis_state:z.string().nullable(),latest_occurred_at:z.number().nullable(),checkpoint:checkpoint.nullable()});
+const handoff=z.object({status:z.string(),progress:z.string(),remaining:z.string(),next_action:z.string(),blocker:z.string(),evidence:z.array(z.string()),at:z.number(),turn_at:z.number(),origin:z.string()});
+const conversation = z.object({handoff:handoff.nullable().optional(),role:z.string().optional(),preview:z.object({text:z.string(),author:z.string(),at:z.number(),replies:z.number().nullable()}).nullable().optional(),work_ids:z.array(z.string()),id:z.string(),source:z.string(),external_id:z.string(),title:z.string(),url:z.string(),model:z.string(),updated_at:z.number(),summary:z.string().nullable(),next_action:z.string().nullable(),checkpoint_at:z.number().nullable(),analysis_state:z.string().nullable(),latest_occurred_at:z.number().nullable(),checkpoint:checkpoint.nullable()});
 const work = z.object({id:z.string(),title:z.string(),status:z.string(),focus:z.number(),summary:z.string(),next_action:z.string(),updated_at:z.number(),intent,decisions:z.array(z.object({id:z.string(),conversation_id:z.string(),text:z.string(),quote:z.string(),event_id:z.string()})),conversations:z.array(conversation)});
 const obligation = z.object({work_ids:z.array(z.string()),id:z.string(),work_id:z.string(),conversation_id:z.string(),title:z.string(),owner:z.string(),direction:z.string(),due_at:z.number().nullable(),state:z.string(),version:z.number(),evidence_quote:z.string(),resolution:z.string().nullable(),updated_at:z.number()});
 const attention=z.object({token:z.string(),kind:z.string(),entity_id:z.string(),title:z.string(),reason:z.string(),rank:z.number(),work_ids:z.array(z.string()),source:z.string(),at:z.number(),occurred_at:z.number().nullable(),received_at:z.number().nullable(),seen:z.boolean()});
 const dayPlan=z.object({date:z.string(),work_ids:z.array(z.string()),note:z.string(),version:z.number(),updated_at:z.number().nullable()});
 const workDetail=z.object({work,obligations:z.array(obligation),now:z.number()});
 const workIndex=z.object({items:z.array(z.object({id:z.string(),title:z.string(),status:z.string(),focus:z.number(),project:z.string(),next_action:z.string(),open_count:z.number()})),total:z.number(),has_more:z.boolean()});
-const snapshotSchema = z.object({attention:z.array(attention),attention_total:z.number(),attention_unseen:z.number(),today:dayPlan,previous_day:dayPlan.nullable().optional(),work:z.array(work),obligations:z.array(obligation),sources:z.array(z.object({name:z.string(),state:z.string(),scope:z.string(),checked_at:z.number().nullable(),last_success:z.number().nullable(),error:z.string().nullable()})),changes:z.array(z.object({seq:z.number(),kind:z.string(),entity_id:z.string(),detail:z.string(),at:z.number()})),analysis:z.object({pending:z.number().nullable(),running:z.number().nullable(),errors:z.number().nullable()}),reminders:z.array(z.object({id:z.string(),day:z.string(),state:z.string(),created_at:z.number(),finished_at:z.number().nullable()})),jobs:z.array(z.object({id:z.string(),kind:z.string(),source_key:z.string(),revision:z.string(),state:z.string(),detail:z.string(),updated_at:z.number()})),seq:z.number(),now:z.number()});
+const legacySummary=z.object({total:z.number(),due:z.number(),has_more:z.boolean(),teams:z.array(z.string())});
+const legacyPage=legacySummary.extend({items:z.array(obligation.extend({source_title:z.string(),url:z.string(),external_id:z.string()}))});
+export type LegacyPage=z.infer<typeof legacyPage>;
+const snapshotSchema = z.object({legacy:legacySummary.optional(),attention:z.array(attention),attention_total:z.number(),attention_unseen:z.number(),today:dayPlan,previous_day:dayPlan.nullable().optional(),work:z.array(work),obligations:z.array(obligation),sources:z.array(z.object({name:z.string(),state:z.string(),scope:z.string(),checked_at:z.number().nullable(),last_success:z.number().nullable(),error:z.string().nullable()})),changes:z.array(z.object({seq:z.number(),kind:z.string(),entity_id:z.string(),detail:z.string(),at:z.number()})),analysis:z.object({pending:z.number().nullable(),running:z.number().nullable(),errors:z.number().nullable()}),reminders:z.array(z.object({id:z.string(),day:z.string(),state:z.string(),created_at:z.number(),finished_at:z.number().nullable()})),jobs:z.array(z.object({id:z.string(),kind:z.string(),source_key:z.string(),revision:z.string(),state:z.string(),detail:z.string(),updated_at:z.number()})),seq:z.number(),now:z.number()});
 export type Work=z.infer<typeof work>;
 export type Conversation=z.infer<typeof conversation>;
 export type Obligation=z.infer<typeof obligation>;
@@ -34,6 +39,8 @@ const reviewRow=z.object({obligation_id:z.string(),title:z.string(),state:z.stri
 const reviewPage=z.object({items:z.array(reviewRow),total:z.number(),has_more:z.boolean(),counts:z.record(z.string(),z.number()),budget:z.object({limit:z.number(),used:z.number(),remaining:z.number()})});
 export type CompletionPage=z.infer<typeof reviewPage>;
 export const rpcContract = defineRpcContract({
+ legacyPage:{input:z.object({offset:z.number().int().min(0).max(100000)}),output:legacyPage},
+ keepLegacy:{input:z.object({obligation_id:z.string().max(100),version:z.number().int()}),output:z.object({ok:z.boolean()})},
  completionPage:{input:z.object({offset:z.number().int().min(0).max(100000),verdict:z.string().max(40)}),output:reviewPage},
  queueCompletion:{input:z.object({scope:z.enum(['unseen','open','selected']),ids:z.array(z.string().max(100)).max(100).optional()}),output:z.object({queued:z.number()})},
  resolveCompletion:{input:z.object({obligationId:z.string().max(100)}),output:z.object({ok:z.boolean()})},
@@ -96,6 +103,22 @@ export default async function plugin(bb:BbPluginApi) {
   const t=await bb.sdk.threads.get({threadId});
   return z.object({ok:z.boolean()}).parse(await core('register_agent_thread',{work_id:parsed.data.workId,thread_id:t.id,title:t.title??t.titleFallback??t.id,model:t.providerId,occurred_at:t.updatedAt/1000}));
  }
+ async function captureThread(threadId:string){
+  const t=await bb.sdk.threads.get({threadId});
+  if(t.archivedAt||t.deletedAt)return;
+  const link=z.object({workId:z.string().max(100)}).safeParse(await bb.sdk.threads.getPluginMetadata({threadId}));
+  if(link.success)await trackThread(threadId);
+  const [output,history]=await Promise.all([bb.sdk.threads.output({threadId}),bb.sdk.threads.promptHistory({threadId,limit:'3'})]);
+  // Re-read status after I/O so a delayed idle callback cannot win over a new turn.
+  const current=await bb.sdk.threads.get({threadId});
+  if(current.updatedAt!==t.updatedAt||current.status!==t.status)return;
+  const prompts=history.slice().sort((a,b)=>a.createdAt-b.createdAt).map(h=>({at:h.createdAt,text:h.input.filter(p=>p.type==='text').map(p=>p.text).join('\n').slice(-9000)}));
+  const body=JSON.stringify({captureVersion:2,coverage:'Latest 3 prompts (last 9000 characters each) and latest assistant output (last 26000 characters); not complete transcript',status:t.status,prompts,assistant:(output.output??'').slice(-26000)});
+  const title=t.title??t.titleFallback??t.id;
+  await core('ingest',{source:'bb',targeted:true,items:[{external_id:t.id,parent_id:t.parentThreadId??t.sourceThreadId,title,model:t.providerId,url:`bb-thread:${t.id}`,version:createHash('sha256').update(JSON.stringify([title,t.parentThreadId??t.sourceThreadId,body])).digest('hex'),text:body,occurred_at:t.updatedAt/1000}]});
+  bb.realtime.publish('changed',{});
+ }
+ registerHandoffs(bb,core,captureThread,config.collectThreads);
  let syncing:Promise<void>|null=null;
  async function collect():Promise<void>{
   if(!config.collectThreads)return;
@@ -114,7 +137,7 @@ export default async function plugin(bb:BbPluginApi) {
       if(t.updatedAt<cutoff)continue;
       const [output,history]=await Promise.all([bb.sdk.threads.output({threadId:t.id}),bb.sdk.threads.promptHistory({threadId:t.id,limit:'3'})]);
       const prompts=history.slice().sort((a,b)=>a.createdAt-b.createdAt).map(h=>({at:h.createdAt,text:h.input.filter(p=>p.type==='text').map(p=>p.text).join('\n').slice(-9000)}));
-      const body=JSON.stringify({coverage:'Latest 3 prompts (last 9000 characters each) and latest assistant output (last 26000 characters); not complete transcript',status:t.status,prompts,assistant:(output.output??'').slice(-26000)});
+      const body=JSON.stringify({captureVersion:2,coverage:'Latest 3 prompts (last 9000 characters each) and latest assistant output (last 26000 characters); not complete transcript',status:t.status,prompts,assistant:(output.output??'').slice(-26000)});
       const title=t.title??t.titleFallback??t.id;
       items.push({external_id:t.id,parent_id:t.parentThreadId??t.sourceThreadId,title,model:t.providerId,url:`bb-thread:${t.id}`,version:createHash('sha256').update(JSON.stringify([title,t.parentThreadId??t.sourceThreadId,body])).digest('hex'),text:body,occurred_at:t.updatedAt/1000});
      }
@@ -128,6 +151,8 @@ export default async function plugin(bb:BbPluginApi) {
   return syncing;
  }
  bb.rpc.register(rpcContract,{
+  legacyPage:async args=>legacyPage.parse(await core('legacy_page',args)),
+  keepLegacy:async args=>{const result=z.object({ok:z.boolean()}).parse(await core('keep_legacy',args));bb.realtime.publish('changed',{});return result},
   completionPage:async args=>reviewPage.parse(await core('completion_page',args)),
   queueCompletion:async args=>{const result=z.object({queued:z.number()}).parse(await core('queue_completion',args));bb.realtime.publish('changed',{});return result},
   resolveCompletion:async({obligationId})=>{const result=z.object({ok:z.boolean()}).parse(await core('resolve_completion',{obligation_id:obligationId}));bb.realtime.publish('changed',{});return result},
