@@ -1,0 +1,7 @@
+{
+  "identity": {"name": "Your Name", "email": "you@example.com", "timezone": "UTC"},
+  "sources": [],
+  "google": {"account": "you@example.com"},
+  "slack": {"team_id": "T_REPLACE_ME", "workspace_url": "https://YOUR-WORKSPACE.slack.com"},
+  "betterstack": {"application_id": null, "environment": "production"}
+}

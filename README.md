@@ -1,0 +1,54 @@
+# Work Hub
+
+Keep your place across parallel work, AI conversations, and incoming requests.
+
+Work Hub brings related conversations, source evidence, next actions and follow-ups into a local work register inside [BB](https://getbb.app/). Focus several work items, see important arrivals, resume a conversation, or start a related agent with the context already assembled.
+
+**Start here:** [Complete setup guide](SETUP.md) · [Copy/paste AI setup prompt](SETUP-PROMPT.md) · [Security and privacy](SECURITY.md)
+
+## What it does
+
+- Connects BB conversations across models without moving or replacing their transcripts.
+- Tracks what you owe and what others owe you, with source evidence and shared status.
+- Keeps user-chosen next actions separate from model suggestions.
+- Reads selected Google, Slack, Linear, GitHub, Granola and Better Stack sources.
+- Supports full-screen, portrait-monitor and narrow-sidebar layouts.
+- Opens linked PRs/issues in BB's sidebar and provides related context inside threads.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  Sources[Selected source accounts] -->|Outbound reads| Collectors
+  BB[BB conversations] --> Plugin[Work Hub plugin]
+  Collectors --> Ledger[(Local SQLite ledger)]
+  Plugin <--> Ledger
+  Ledger -->|Selected excerpts| Model[Claude or Codex]
+  Model --> Checks[Schema, evidence, lease and version checks]
+  Checks --> Ledger
+  Plugin --> UI[Attention, focus, context and follow-ups]
+```
+
+Python owns the ledger and collectors; a TypeScript plugin supplies the BB interface. Background analysis can use Claude Code or Codex independently of interactive BB model choices. A Claude-only user does not need Codex.
+
+## Status and boundaries
+
+Experimental, single-user, local-first software. The documented background setup targets macOS and requires the computer to be awake and logged in. No public laptop ports or cloud workers are needed. Model analysis sends selected source excerpts to the chosen provider; it is not local inference.
+
+Collection defaults to off. You choose accounts, sources and the analyzer before enabling it. Coverage is bounded, extraction is asynchronous and commitments can need review. Check source freshness and backlog before relying on an empty attention panel.
+
+Automatic live PR-review/error-fixer workers are not included. Starting an agent uses BB's native composer and the permissions you choose there.
+
+## Development checks
+
+Install dependencies using SETUP.md, then run:
+
+```bash
+.venv/bin/python -m unittest discover -s hub -p 'test_*.py'
+.venv/bin/python -m unittest discover -s connectors/google -p 'test_*.py'
+node --experimental-strip-types --test bb-plugin-work-hub/reference-links.test.ts bb-plugin-work-hub/launch-context.test.ts
+./bb-plugin-work-hub/node_modules/.bin/tsc --noEmit -p bb-plugin-work-hub/tsconfig.json
+bb plugin build ./bb-plugin-work-hub
+```
+
+See [the security review](docs/security-review.md) for audit scope and limitations. Do not contribute private state, credentials, source excerpts or machine-specific settings. No open-source license has been selected yet; public visibility does not itself grant a software license.

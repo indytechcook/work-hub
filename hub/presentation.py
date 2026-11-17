@@ -1,0 +1,132 @@
+"""Portable UI intent and attention, independent of BB and of model extraction.
+
+Versioned intent, plans and acknowledgements live in exported meta records. No
+new background dispatcher or notification channel is installed by this module.
+"""
+import json
+import time
+from datetime import datetime
+from settings import timezone as local_timezone
+import hashlib
+
+
+def fingerprint(*parts):
+    return hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest()[:32]
+
+
+class PresentationMixin:
+    def _record(self, key, default):
+        row = self.db.execute('SELECT value FROM meta WHERE key=?', (key,)).fetchone()
+        return json.loads(row[0]) if row else default
+
+    def _put_record(self, key, value):
+        self.db.execute('INSERT INTO meta VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',
+                        (key, json.dumps(value)))
+
+    def intent(self, work_id):
+        return self._record('intent:'+work_id, dict(next_action='', purpose='', project='', thread_id=None, version=0, updated_at=None))
+
+    def save_intent(self, work_id, version, next_action, purpose='', project='', thread_id=None):
+        for value, limit in [(next_action,1500),(purpose,3000),(project,120)]:
+            if not isinstance(value,str) or len(value)>limit:raise ValueError('Invalid intent text')
+        with self.db:
+            self.db.execute('BEGIN IMMEDIATE')
+            if not self.db.execute('SELECT 1 FROM work WHERE id=?',(work_id,)).fetchone():raise ValueError('Unknown work')
+            if self.intent(work_id)['version']!=version:raise ValueError('Your chosen context changed in another view. Reload it before saving.')
+            if thread_id is not None and not self.db.execute("SELECT 1 FROM conversations c JOIN work_memberships m ON m.conversation_id=c.id WHERE c.source='bb' AND c.external_id=? AND m.work_id=?",(thread_id,work_id)).fetchone():
+                raise ValueError('Resume conversation is not associated with this work')
+            value=dict(next_action=next_action.strip(),purpose=purpose.strip(),project=project.strip(),thread_id=thread_id,version=version+1,updated_at=time.time())
+            self._put_record('intent:'+work_id,value)
+            self.change('chosen_context',work_id,'Chosen next action updated')
+        return value
+
+    def day_plan(self, date=None):
+        date=date or datetime.now(local_timezone()).date().isoformat()
+        try:
+            if datetime.strptime(date,'%Y-%m-%d').date().isoformat()!=date:raise ValueError()
+        except (ValueError,TypeError):raise ValueError('Expected a local date YYYY-MM-DD')
+        return self._record('day_plan:'+date,dict(date=date,work_ids=[],note='',version=0,updated_at=None))
+
+    def acknowledge_changes(self, seqs):
+        if not isinstance(seqs,list) or len(seqs)>100 or any(type(seq) is not int or seq<1 for seq in seqs):raise ValueError('Choose up to 100 displayed changes')
+        with self.db:
+            self.db.execute('BEGIN IMMEDIATE')
+            for seq in set(seqs):
+                if self.db.execute('SELECT 1 FROM changes WHERE seq=?',(seq,)).fetchone():
+                    self._put_record('change_seen:'+str(seq),dict(at=time.time()))
+        return {'ok':True}
+
+    def previous_day_plan(self):
+        today=self.day_plan()['date']
+        row=self.db.execute("SELECT value FROM meta WHERE key LIKE 'day_plan:%' AND key<? ORDER BY key DESC LIMIT 1",('day_plan:'+today,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def save_day_plan(self, date, version, work_ids, note=''):
+        if not isinstance(work_ids,list) or len(work_ids)>12 or any(not isinstance(i,str) for i in work_ids) or len(set(work_ids))!=len(work_ids):raise ValueError('Choose up to 12 distinct work items')
+        if not isinstance(note,str) or len(note)>3000:raise ValueError('Invalid day note')
+        with self.db:
+            self.db.execute('BEGIN IMMEDIATE')
+            if self.day_plan(date)['version']!=version:raise ValueError('This day plan changed. Reload before saving.')
+            for wid in work_ids:
+                if not self.db.execute('SELECT 1 FROM work WHERE id=?',(wid,)).fetchone():raise ValueError('Unknown planned work')
+            plan=dict(date=date,work_ids=work_ids,note=note.strip(),version=version+1,updated_at=time.time())
+            self._put_record('day_plan:'+date,plan)
+            self.change('day_plan',date,'Day plan saved')
+        return plan
+
+    def attention(self, now=None):
+        now=time.time() if now is None else now
+        local=datetime.fromtimestamp(now,local_timezone())
+        end=local.replace(hour=23,minute=59,second=59,microsecond=999999).timestamp()
+        rows=self.db.execute("SELECT o.*,c.source,e.occurred_at,e.received_at FROM obligations o JOIN conversations c ON c.id=o.conversation_id LEFT JOIN events e ON e.id=o.evidence_event WHERE o.state IN ('open','needs_review')").fetchall()
+        result=[]
+        for row in rows:
+            o=dict(row);reason=None;rank=4
+            if o['state']=='needs_review':reason='Confirm this captured commitment';rank=1
+            elif o['due_at'] is not None and o['due_at']<=now:reason='Overdue commitment';rank=0
+            elif o['due_at'] is not None and o['due_at']<=end:reason='Commitment due today';rank=2
+            elif o['direction']=='i_owe':reason='An open commitment needs your follow-through';rank=3
+            elif self.db.execute("SELECT 1 FROM work w JOIN work_memberships m ON m.work_id=w.id WHERE m.conversation_id=? AND w.status='done'",(o['conversation_id'],)).fetchone():reason='Work is done; this commitment is still open';rank=1
+            if not reason:continue
+            # Extraction can increment version without a meaningful change. Never
+            # re-alert merely because a collector/model revisited the same promise.
+            token=fingerprint('obligation',o['id'],o['title'],o['owner'],o['direction'],o['state'],o['due_at'],reason)
+            result.append(dict(token=token,kind='obligation',entity_id=o['id'],title=o['title'],reason=reason,rank=rank,
+                work_ids=self._work_ids(o['conversation_id']),source=o['source'],at=o['updated_at'],occurred_at=o['occurred_at'],received_at=o['received_at'],
+                seen=self._record('attention_seen:'+token,None) is not None))
+        for row in self.db.execute("SELECT * FROM jobs WHERE state IN ('failed','error','uncertain','held')"):
+            j=dict(row);token=fingerprint('job',j['id'],j['state'])
+            result.append(dict(token=token,kind='job',entity_id=j['id'],title=j['source_key'],reason='Agent job '+j['state']+'; inspect before retrying',rank=0,work_ids=[],source=j['kind'],at=j['updated_at'],occurred_at=None,received_at=None,seen=self._record('attention_seen:'+token,None) is not None))
+        result.sort(key=lambda a:(a['seen'],a['rank'],-a['at'],a['token']))
+        return result
+
+    def acknowledge_attention(self, tokens):
+        if not isinstance(tokens,list) or len(tokens)>100 or any(not isinstance(t,str) or len(t)!=32 for t in tokens):raise ValueError('Invalid attention selection')
+        with self.db:
+            self.db.execute('BEGIN IMMEDIATE')
+            current={a['token'] for a in self.attention()}
+            for token in tokens:
+                if token in current:self._put_record('attention_seen:'+token,time.time())
+        return {'ok':True}
+
+    def work_detail(self, work_id):
+        row=self.db.execute('SELECT * FROM work WHERE id=?',(work_id,)).fetchone()
+        if not row:raise ValueError('This work no longer exists')
+        return dict(work=self._work_detail(row),obligations=[self._obligation_detail(r) for r in self.db.execute("SELECT o.* FROM obligations o JOIN work_memberships m ON m.conversation_id=o.conversation_id WHERE m.work_id=? ORDER BY o.state IN ('open','needs_review') DESC,o.due_at IS NULL,o.due_at,o.updated_at DESC",(work_id,))],now=time.time())
+
+    def work_index(self, query='', status='all', offset=0):
+        if not isinstance(query,str) or len(query)>200 or status not in ('all','active','waiting','done') or type(offset)!=int or not 0<=offset<=100000:raise ValueError('Invalid work search')
+        where="""EXISTS(SELECT 1 FROM work_memberships m WHERE m.work_id=w.id)
+          AND (?='all' OR w.status=?) AND (instr(lower(w.title),lower(?))>0
+          OR EXISTS(SELECT 1 FROM conversations c JOIN work_memberships m ON m.conversation_id=c.id WHERE m.work_id=w.id AND instr(lower(c.title),lower(?))>0)
+          OR EXISTS(SELECT 1 FROM obligations o JOIN work_memberships m ON m.conversation_id=o.conversation_id WHERE m.work_id=w.id AND instr(lower(o.title),lower(?))>0)
+          OR EXISTS(SELECT 1 FROM meta WHERE key='intent:'||w.id AND instr(lower(value),lower(?))>0))"""
+        args=(status,status,query,query,query,query)
+        total=self.db.execute('SELECT COUNT(*) FROM work w WHERE '+where,args).fetchone()[0]
+        rows=self.db.execute('SELECT w.* FROM work w WHERE '+where+' ORDER BY w.focus DESC,w.updated_at DESC,w.id LIMIT 50 OFFSET ?',(*args,offset)).fetchall()
+        items=[]
+        for row in rows:
+            w=dict(row);intent=self.intent(w['id'])
+            count=self.db.execute("SELECT COUNT(*) FROM obligations o JOIN work_memberships m ON m.conversation_id=o.conversation_id WHERE m.work_id=? AND o.state IN ('open','needs_review')",(w['id'],)).fetchone()[0]
+            items.append(dict(id=w['id'],title=w['title'],status=w['status'],focus=w['focus'],project=intent['project'],next_action=intent['next_action'] or w['next_action'],open_count=count))
+        return dict(items=items,total=total,has_more=offset+len(items)<total)

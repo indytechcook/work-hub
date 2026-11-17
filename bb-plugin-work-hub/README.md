@@ -1,0 +1,25 @@
+# Work Hub for BB
+
+A thin BB view over the portable local work ledger in `../hub`. Open **Work Hub** in the sidebar to resume related conversations, focus work, inspect return points and evidence, confirm candidate follow-ups, and see source freshness and automatic job results.
+
+`bb work-hub status` reads the register. `bb work-hub sync` refreshes BB conversations only; the separate outbound collector polls external sources every ten minutes. The page refreshes automatically.
+
+Settings: `hubPath`, `pythonPath`, `collectThreads`, `remindersEnabled`. Set the absolute hub and Python paths first. Conversation capture and reminders default to off. Capture spans recent unarchived threads across projects, including hidden threads. Rebuild with `bb plugin build ./bb-plugin-work-hub`, then reload with `bb plugin reload work-hub`. Settings are read at plugin startup.
+
+The core stores state outside BB. Model-based analysis sends selected excerpts to the configured model service. See `../hub/README.md` for source coverage, credentials, background jobs, operating limits and qualification status. This is an experimental local application, not a marketplace release.
+
+**Start agent** opens the native BB composer on work cards and follow-ups. It seeds editable source context, lets the user choose execution settings, and tracks the created thread through BB plugin metadata and the portable register. Existing BB conversations supply a default project/parent; external-only items require choosing the appropriate project when needed. Focus continues to only mark priority.
+
+## Three working modes
+
+The dashboard uses a selected-work reading pane and a separate list of focused work. Choose **Portrait monitor** for a persistent important-arrivals lane, **Work surface** for list/detail/attention, or **Auto** to follow the available panel dimensions. Below 720px the work surface uses list/detail navigation. The native thread **Work context** tab remains a compact 360px-friendly sidebar with a thread-specific checkpoint, shared commitments, related model conversations and progressively disclosed source evidence.
+
+**Start morning** saves an ordered local day plan. **Finish day** optionally saves a return note; the latest earlier plan's note remains available on subsequent days. These actions do not dispatch agents, migrate the Moving Parts board, change work status, or modify promised dates. **Choose/Edit next step** saves user intent separately from extracted suggestions. The native **Start agent** composer uses that chosen step when present.
+
+The portrait arrival lane and attention list share one identity per commitment or uncertain job. Acknowledge exact items with **Mark seen**; this does not fulfill them. Meaningful changes to an obligation's title, owner, direction, state, due date or urgency can make it unseen again. Routine extraction does not. Initial rollout treats existing eligible items as unseen until reviewed. This is an in-app signal based on captured commitments/jobs, not desktop push, sound, or comprehensive semantic classification of raw inbox items. Collection and analysis can lag; the coverage disclosure distinguishes successful bounded scans from pending analysis. Existing triggers remain off.
+
+Chosen intent, versioned day plans, checkpoint provenance and exact-item acknowledgements use namespaced records in the portable ledger's existing `meta` table and are included in schema-v2 exports. No destructive migration or external notification service is added. Selected work, layout, status filter and search persist per plugin/browser; the thread selector persists separately per thread. Conflict-sensitive edits reject stale versions and offer an explicit reload. Source associations retain one commitment/decision identity and require at least one association.
+
+Validation for this pass: Python ledger/collector suite with isolated collector locks; TypeScript checking; plugin build; source-link/launch-context unit tests; and nine browser workflows against an isolated synthetic SQLite ledger. The video fixture host simulates native BB navigation/composer while rendering the actual plugin components. It is not a qualification of live agent execution.
+
+Attention items include an Actions dropdown in the portrait arrival banner and attention lists. It loads current associated work and commitment versions before offering confirm, fulfill, cancel, focus, resume, agent launch, and work status actions. Job alerts offer review and acknowledgement only. Mark seen remains independent of resolution; shared commitments resolve once across all associated work. PR and Linear references use BB sidebar links when source evidence resolves their destination.

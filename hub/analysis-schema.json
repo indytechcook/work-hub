@@ -1,0 +1,101 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "summary": {
+      "type": "string"
+    },
+    "next_action": {
+      "type": "string"
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "type": "string"
+          },
+          "quote": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "quote"
+        ]
+      }
+    },
+    "obligations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "existing_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "i_owe",
+              "they_owe",
+              "unclear"
+            ]
+          },
+          "due_at": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "needs_review",
+              "fulfilled",
+              "cancelled"
+            ]
+          },
+          "quote": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "explicit_resolution": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "existing_id",
+          "title",
+          "owner",
+          "direction",
+          "due_at",
+          "state",
+          "quote",
+          "confidence",
+          "explicit_resolution"
+        ]
+      }
+    }
+  },
+  "required": [
+    "summary",
+    "next_action",
+    "decisions",
+    "obligations"
+  ]
+}
