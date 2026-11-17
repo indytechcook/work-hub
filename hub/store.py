@@ -9,6 +9,7 @@ from datetime import datetime
 from settings import timezone as local_timezone
 from pathlib import Path
 from presentation import PresentationMixin
+from source_preview import slack_preview
 
 from lifecycle import LifecycleMixin, SCHEMA as LIFECYCLE_SCHEMA
 
@@ -357,8 +358,9 @@ class Store(LifecycleMixin, PresentationMixin):
         w=dict(row)
         w['intent']=self.intent(w['id'])
         w['decisions']=[dict(r) for r in self.db.execute('SELECT d.id,d.conversation_id,d.text,d.quote,d.evidence_event event_id FROM decisions d JOIN work_memberships m ON m.conversation_id=d.conversation_id WHERE m.work_id=?',(w['id'],))]
-        w['conversations']=[dict(r) for r in self.db.execute('SELECT c.id,c.source,c.external_id,c.title,c.url,c.model,c.updated_at,r.summary,r.next_action,r.updated_at checkpoint_at,e.analysis_state,e.occurred_at latest_occurred_at FROM conversations c JOIN work_memberships m ON m.conversation_id=c.id LEFT JOIN return_points r ON r.conversation_id=c.id LEFT JOIN events e ON e.id=c.latest_event WHERE m.work_id=? ORDER BY c.updated_at DESC',(w['id'],))]
+        w['conversations']=[dict(r) for r in self.db.execute('SELECT c.id,c.source,c.external_id,c.title,c.url,c.model,c.updated_at,r.summary,r.next_action,r.updated_at checkpoint_at,e.analysis_state,e.occurred_at latest_occurred_at,CASE WHEN c.source="slack" THEN e.text ELSE NULL END preview_text FROM conversations c JOIN work_memberships m ON m.conversation_id=c.id LEFT JOIN return_points r ON r.conversation_id=c.id LEFT JOIN events e ON e.id=c.latest_event WHERE m.work_id=? ORDER BY c.updated_at DESC',(w['id'],))]
         for c in w['conversations']:
+            c['preview']=slack_preview(c.pop('preview_text'))
             c['work_ids']=self._work_ids(c['id'])
             c['checkpoint']=self._record('checkpoint:'+c['id'],None)
         return w
