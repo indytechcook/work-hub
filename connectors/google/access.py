@@ -4,7 +4,7 @@ import argparse
 import json
 import os
 import sys
-import tempfile
+
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -15,8 +15,9 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT / "hub"))
 from settings import google_account
+from storage import Store
 STATE = ROOT / "hub" / ".state" / "google"
-TOKEN = STATE / "authorized_user.json"
+
 SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/calendar.readonly",
@@ -26,17 +27,11 @@ SCOPES = [
 
 
 def save_credentials(credentials):
-    # Atomic replacement avoids truncating the refresh token on interruption.
-    fd, temporary = tempfile.mkstemp(dir=STATE, prefix=".credentials-")
-    try:
-        with os.fdopen(fd, "w") as stream:
-            stream.write(credentials.to_json())
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, TOKEN)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
+    Store(STATE.parent).write('google_tokens',json.loads(credentials.to_json()))
+
+
+def load_credentials():
+    return Credentials.from_authorized_user_info(Store(STATE.parent).read('google_tokens') or {}, scopes=SCOPES)
 
 
 def read_json(session, url, params=None):
@@ -48,8 +43,9 @@ def read_json(session, url, params=None):
 def probe(credentials):
     if not credentials.refresh_token:
         raise ValueError("Offline access was not granted")
+    Store(STATE.parent).require_writable('google_tokens')
     credentials.refresh(Request())
-    with AuthorizedSession(credentials) as session:
+    with AuthorizedSession(credentials, max_refresh_attempts=0) as session:
         profile = read_json(session, "https://gmail.googleapis.com/gmail/v1/users/me/profile")
         if profile["emailAddress"].lower() != google_account():
             raise ValueError("Unexpected Google account")
@@ -81,11 +77,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=["login", "probe"])
     action = parser.parse_args().action
+    STATE.mkdir(mode=0o700,parents=True,exist_ok=True)
+    Store(STATE.parent).require_writable('google_tokens')
     if action == "login":
-        if TOKEN.exists():
+        if Store(STATE.parent).read('google_tokens') is not None:
             raise FileExistsError("Existing credentials preserved; use probe")
-        flow = InstalledAppFlow.from_client_secrets_file(
-            str(STATE / "client_secret.json"), scopes=SCOPES,
+        flow = InstalledAppFlow.from_client_config(
+            Store(STATE.parent).read('google_client') or {}, scopes=SCOPES,
             autogenerate_code_verifier=True,
         )
         print("Opening Google consent for read-only Gmail, Calendar, and Drive access.", flush=True)
@@ -102,13 +100,13 @@ def main():
         if granted is None or set(granted) != set(SCOPES):
             raise ValueError("Granted scopes did not match the three requested read-only scopes")
         # Check the account before persisting credentials, even if later probes fail.
-        with AuthorizedSession(credentials) as session:
+        with AuthorizedSession(credentials, max_refresh_attempts=0) as session:
             profile = read_json(session, "https://gmail.googleapis.com/gmail/v1/users/me/profile")
             if profile["emailAddress"].lower() != google_account():
                 raise ValueError("Unexpected Google account")
         save_credentials(credentials)
     else:
-        credentials = Credentials.from_authorized_user_file(str(TOKEN), scopes=SCOPES)
+        credentials = load_credentials()
     probe(credentials)
 
 

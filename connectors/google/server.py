@@ -8,13 +8,13 @@ from urllib.parse import quote
 
 from google.auth.exceptions import GoogleAuthError
 from google.auth.transport.requests import AuthorizedSession, Request
-from google.oauth2.credentials import Credentials
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from pydantic import Field
 from requests.exceptions import RequestException
 
-from access import SCOPES, STATE, TOKEN, save_credentials
+from access import STATE, save_credentials, load_credentials
+from storage import Store, StorageError
 
 mcp = FastMCP("google_workspace_mcp", log_level="WARNING")
 READ = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True}
@@ -27,19 +27,21 @@ GmailId = Annotated[str, Field(pattern=r"^[a-fA-F0-9]{1,64}$")]
 def google_get(url: str, params: dict) -> dict:
     """Only internal callers choose fixed Google endpoints; tool inputs never supply URLs."""
     try:
+        STATE.mkdir(mode=0o700,parents=True,exist_ok=True)
         # Multiple collector processes must not race refresh-token persistence.
         with (STATE / "refresh.lock").open("a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            credentials = Credentials.from_authorized_user_file(str(TOKEN), scopes=SCOPES)
+            credentials = load_credentials()
             if not credentials.valid:
+                Store(STATE.parent).require_writable('google_tokens')
                 credentials.refresh(Request())
                 save_credentials(credentials)
-        with AuthorizedSession(credentials) as session:
+        with AuthorizedSession(credentials, max_refresh_attempts=0) as session:
             response = session.get(url, params=params, timeout=30, allow_redirects=False)
             if not 200 <= response.status_code < 300:
                 raise ToolError(f"Google returned HTTP {response.status_code}. Check source access; do not treat this source as refreshed.")
             return response.json()
-    except (GoogleAuthError, RequestException, OSError, ValueError) as error:
+    except (GoogleAuthError, RequestException, OSError, ValueError, StorageError) as error:
         # Exception messages may contain query data, callback codes, or token responses.
         raise ToolError(f"Google access failed ({type(error).__name__}). Check the local connection; no source coverage was advanced.") from None
 

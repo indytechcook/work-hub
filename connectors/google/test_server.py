@@ -70,3 +70,27 @@ class GoogleReadTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GoogleStorageTests(unittest.TestCase):
+    def test_refresh_from_environment_refused_before_network(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import Mock
+        credentials=Mock(valid=False)
+        with tempfile.TemporaryDirectory() as folder, patch.object(server,'STATE',Path(folder)), patch.object(server,'load_credentials',return_value=credentials), patch.dict('os.environ',{'WORK_HUB_GOOGLE_TOKENS_JSON':'{}'}):
+            with self.assertRaises(ToolError):server.google_get('https://gmail.googleapis.com/gmail/v1/users/me/profile',{})
+        credentials.refresh.assert_not_called()
+
+    def test_refreshed_credentials_persist_before_read_without_hidden_renewal(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import Mock
+        credentials=Mock(valid=False)
+        session=Mock();session.get.return_value.status_code=200;session.get.return_value.json.return_value={}
+        with tempfile.TemporaryDirectory() as folder, patch.object(server,'STATE',Path(folder)), patch.object(server,'load_credentials',return_value=credentials), patch.object(server,'save_credentials') as save, patch.object(server,'Store') as store, patch.object(server,'AuthorizedSession') as auth:
+            auth.return_value.__enter__.return_value=session
+            server.google_get('https://gmail.googleapis.com/gmail/v1/users/me/profile',{})
+        store.return_value.require_writable.assert_called_once_with('google_tokens')
+        save.assert_called_once_with(credentials)
+        auth.assert_called_once_with(credentials,max_refresh_attempts=0)

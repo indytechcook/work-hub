@@ -53,8 +53,9 @@ For installation, use [Claude Code's official setup instructions](https://code.c
 ## 3. Configure your identity and source choices
 
 ```bash
-cp examples/config.json hub/.state/config.json
-chmod 600 hub/.state/config.json
+bb plugin install env-catalog@bb-community --yes
+# Edit a private copy of examples/config.json with your own settings, then:
+.venv/bin/python hub/configure.py set config --input-file /absolute/private/config.json
 ```
 
 Edit the private copy, not the template. Set your name, email and IANA timezone. The initial `sources: []` enables **no external collection**. Add only sources you intend to connect: `gmail`, `calendar`, `drive`, `github`, `linear`, `slack`, `meetings`, `betterstack`.
@@ -69,7 +70,7 @@ Source-specific fields:
 | `betterstack.application_id` | Your application's numeric ID, verified through an authorized read. |
 | `betterstack.environment` | The environment you intend to observe. |
 
-Unused source sections can remain unconfigured. Do not enter client secrets or access tokens in `config.json`; use the private locations described below. Source code does not need edits for personal settings.
+Unused source sections can remain unconfigured. Configuration and OAuth credentials now default to BB’s encrypted Env Catalog. Each record can be overridden by an environment variable or an explicit JSON bundle; see [storage and migration](docs/storage.md). Do not put tokens inside the general `config` record; use the credential records below. Remove temporary input files after verified import if no other service needs them. Source code does not need edits for personal settings.
 
 BB conversation collection is controlled separately by the plugin. It is off initially. When enabled, it captures recent unarchived threads across BB projects, including hidden threads. **There is no per-project filter yet.** Accept that scope explicitly or keep it off.
 
@@ -79,14 +80,13 @@ Choose exactly one template:
 
 ```bash
 # Claude-only installation:
-cp examples/analyzer.claude.json hub/.state/analyzer.json
+.venv/bin/python hub/configure.py set analyzer --input-file examples/analyzer.claude.json
 
 # Alternatively:
-# cp examples/analyzer.codex.json hub/.state/analyzer.json
-chmod 600 hub/.state/analyzer.json
+# .venv/bin/python hub/configure.py set analyzer --input-file examples/analyzer.codex.json
 ```
 
-The file supports `provider` (`claude` or `codex`), optional `model`, and optional `executable` (the CLI's absolute path). Omit `model` to use the chosen CLI's default, or select one actually available to your account. A provider choice is required for background work; there is no silent fallback. This setting is independent of interactive BB model choices.
+The analyzer record supports `provider` (`claude` or `codex`), optional `model`, and optional `executable` (the CLI's absolute path). Omit `model` to use the chosen CLI's default, or select one actually available to your account. A provider choice is required for background work; there is no silent fallback. This setting is independent of interactive BB model choices.
 
 **Claude:** normal Claude Code subscription/keychain authentication is retained. Personal customizations, general tools, hooks, skills and MCP connections are disabled for extraction. Organization-managed policy can still apply. The adapter requests structured output and rejects unexpected tool activity. It deliberately does not use `--bare`, which bypasses subscription login. See [the CLI reference](https://code.claude.com/docs/en/cli-reference) and [programmatic usage](https://code.claude.com/docs/en/headless).
 
@@ -94,10 +94,12 @@ The file supports `provider` (`claude` or `codex`), optional `model`, and option
 
 Both adapters work in a fresh empty directory, without source tools. Selected evidence is sent to the chosen model service; local orchestration does not mean local inference. CLI API-key/custom authentication may need additional secure launchd environment configuration; the default setup is qualified with normal subscription authentication. Never print credentials while troubleshooting.
 
-Create private `hub/.state/policy.json`:
+Store the analysis allowance:
 
-```json
+```bash
+.venv/bin/python hub/configure.py set policy --input-file - <<'JSON'
 {"max_analyses_per_day":120}
+JSON
 ```
 
 Daily reservations count attempted background calls and reset at UTC midnight. Synthetic checks consume usage separately. Choose any higher catch-up allowance deliberately; never inherit another person's budget.
@@ -141,11 +143,11 @@ Run `bb skill list --json` and confirm `work-hub`, `work-hub-plan`, `work-hub-re
 
 ## 6. Connect selected sources
 
-Add each selected source to `config.json` before its collector test. OAuth success alone is not enough: verify a bounded read, correct account/scope, and a successful source status. Sign-in opens temporary loopback-only callbacks. Let the human complete consent and review grants that exceed the reads the collector performs.
+Add each selected source to the encrypted `config` record before its collector test. OAuth success alone is not enough: verify a bounded read, correct account/scope, and a successful source status. Sign-in opens temporary loopback-only callbacks. Let the human complete consent and review grants that exceed the reads the collector performs.
 
 ### Google: Gmail, Calendar and Drive
 
-Select a Google Cloud project you own (existing is fine). Enable the Gmail, Calendar and Drive APIs. Configure the OAuth audience/consent/test users or organization access. Create a **Desktop app** OAuth client and save its downloaded JSON as private `hub/.state/google/client_secret.json`, mode `600`. Set `google.account` first.
+Select a Google Cloud project you own (existing is fine). Enable the Gmail, Calendar and Drive APIs. Configure the OAuth audience/consent/test users or organization access. Create a **Desktop app** OAuth client and import its downloaded JSON using `.venv/bin/python hub/configure.py set google_client --input-file /absolute/private/download.json`. Set `google.account` first. Google tokens will be saved and refreshed in encrypted storage automatically.
 
 Follow [Google's credential documentation](https://developers.google.com/workspace/guides/create-credentials). This uses standard APIs; Google MCP services and domain-wide delegation are not required. Check publishing/admin policy and token-lifetime behavior before relying on unattended operation.
 
@@ -187,7 +189,7 @@ For a new read-only configuration, inspect and set `allowWrites=false`, `agentWr
 
 Use your own workspace-approved Slack app and [Slack's MCP user OAuth instructions](https://docs.slack.dev/ai/slack-mcp-server/). This is not the bot-token flow. Register callback `http://localhost:3102/slack/callback`. Configure `slack.team_id` and `slack.workspace_url`.
 
-Save the app's client ID and secret locally in private `hub/.state/slack-client.env`, mode `600`, with keys `SLACK_CLIENT_ID` and `SLACK_CLIENT_SECRET`. Use a secure editor or secret input mechanism; do not paste secrets into an AI conversation.
+Prepare a private JSON object with `client_id` and `client_secret`, then import it using `.venv/bin/python hub/configure.py set slack_client --input-file /absolute/private/slack.json`. Use a secure editor or secret input mechanism; do not paste secrets into an AI conversation. Slack tokens are saved and refreshed in encrypted storage automatically.
 
 Requested read scopes:
 
@@ -233,12 +235,11 @@ node --experimental-strip-types --test bb-plugin-work-hub/reference-links.test.t
 From a BB thread in your Work Hub project, capture your own context:
 
 ```bash
-bb status --json > hub/.state/bb-context.json
-chmod 600 hub/.state/bb-context.json
+bb status --json | .venv/bin/python hub/configure.py set bb_context --input-file -
 .venv/bin/python hub/install_local.py --dry-run
 ```
 
-Verify the project ID and previewed commands privately. Do not publish the context file. The installer uses the Python executable you invoke it with, so use `.venv/bin/python`. Its preview omits the captured BB environment, which can contain private credentials.
+Verify the project ID and previewed commands privately. Do not publish the context record. The installer uses the Python executable you invoke it with, so use `.venv/bin/python`. Its preview omits the captured BB environment, which can contain private credentials.
 
 ```bash
 .venv/bin/python hub/install_local.py

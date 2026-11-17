@@ -11,7 +11,7 @@ No confirmed critical/high exploitable issue or embedded live credential was ide
 | Finding | Impact | Public-source resolution |
 |---|---|---|
 | Private trial evidence lived alongside source and was not fully excluded by Git | Accidental disclosure if the entire old workspace were committed | New repository built from an explicit source-only list; excludes trial evidence, operational history, private state, credentials, logs, databases and generated files. Broad private-file ignore rules added. |
-| Personal identity, machine path, workspace and application defaults were embedded in code | New installs could target the wrong account, workspace or machine | Neutral UI/fixtures; private `config.json` for identity/accounts; explicit BB hub/Python paths; no copied account IDs. |
+| Personal identity, machine path, workspace and application defaults were embedded in code | New installs could target the wrong account, workspace or machine | Neutral UI/fixtures; private configuration records for identity/accounts; explicit BB hub/Python paths; no copied account IDs. |
 | BB capture defaulted on across projects | Unexpected capture of private conversations on install | Capture defaults off; setting and guide disclose cross-project and hidden-thread scope. |
 | External collection defaulted to all connectors | More source access than the new user selected | Empty source list performs no collection. Requested collectors must be explicitly enabled. Scheduled arguments contain only selected sources. |
 | Background analysis implicitly chose a provider | Private evidence could go to an unchosen provider/account | Explicit provider configuration required; no silent fallback. |
@@ -40,7 +40,7 @@ Reviewed source-to-command boundaries (argument arrays, no source-selected shell
 ## Residual limits
 
 - Local settings, CLI binaries/PATH, the OS account, BB and provider-managed policy are trusted. This does not isolate a malicious process running as the same user.
-- Tokens and the SQLite ledger are plaintext local data protected by filesystem permissions and OS security. Backups/exports need equivalent care.
+- The SQLite ledger is plaintext local data protected by filesystem permissions and OS security. Configuration and Work Hub-owned OAuth records now default to BB Env Catalog encryption; optional JSON overrides remain plaintext. Provider-owned CLI sign-ins retain their provider storage. Backups/exports need equivalent care. See storage.md for the follow-up change and its validation.
 - Claude/Codex receive selected source excerpts. Tool restrictions do not guarantee that summaries or obligation extraction are correct.
 - OAuth grants can be broader than the client read allowlist. Organization-specific consent and refresh must be tested on each installation.
 - Explicit BB capture spans projects, including hidden threads. No per-project filter exists yet.
@@ -60,3 +60,7 @@ pip-audit -r connectors/google/requirements.txt --no-deps --disable-pip
 ```
 
 Do not upload private `.state`, logs, exports or raw scan matches to public issues. Reports can contain file paths or snippets; review/redact before sharing.
+
+## Encrypted storage follow-up
+
+The configuration/credential update adds BB Env Catalog (0.3.3) as the default, explicit environment/JSON overrides, read-back migration verification, and refresh writeback. 93 hub tests and 12 Google adapter tests pass, alongside eight TypeScript tests, typecheck and plugin build. A source-only Gitleaks scan found no secrets. The installed application passed bounded Google/Slack account reads, authenticated Better Stack/Granola tool discovery, a Work Hub snapshot, and analyzer restart. These live checks do not establish fresh-machine setup or cryptographic correctness of the catalog plugin.

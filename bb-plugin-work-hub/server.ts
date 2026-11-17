@@ -52,15 +52,22 @@ export default async function plugin(bb:BbPluginApi) {
   hubPath:{type:'string',label:'Portable hub directory',default:''},
   collectThreads:{type:'boolean',label:'Collect recent BB conversations across projects (including hidden)',default:false},
   pythonPath:{type:'string',label:'Python executable',default:'python3'},
+  storageBackend:{type:'string',label:'Storage backend (bb or json; blank inherits environment)',default:''},
+  storageProfile:{type:'string',label:'Encrypted storage profile (blank uses default/environment)',default:''},
+  storageFile:{type:'string',label:'Optional absolute JSON override path (contains private data)',default:''},
   remindersEnabled:{type:'boolean',label:'Grouped due follow-up reminders (weekdays 9–18, max 3/day)',default:false},
  });
  const config=await settings.get();
+ const storageEnv={...process.env};
+ for(const [key,value] of Object.entries({WORK_HUB_STORAGE:config.storageBackend,WORK_HUB_PROFILE:config.storageProfile,WORK_HUB_CONFIG_FILE:config.storageFile})){
+  if(value && storageEnv[key]===undefined)storageEnv[key]=value;
+ }
  const liveChildren = new Set<ReturnType<typeof spawn>>();
  bb.onDispose(()=>{for(const child of liveChildren)child.kill('SIGTERM');});
  async function core(op:string,args:unknown={}):Promise<unknown>{
   if(!config.hubPath.startsWith('/'))throw new Error('Set Work Hub hubPath to your absolute hub directory before use');
   return new Promise((resolve,reject)=>{
-   const child=spawn(config.pythonPath,[`${config.hubPath}/cli.py`],{stdio:['pipe','pipe','pipe'],env:{...process.env,WORK_HUB_STATE:`${config.hubPath}/.state`}});
+   const child=spawn(config.pythonPath,[`${config.hubPath}/cli.py`],{stdio:['pipe','pipe','pipe'],env:{...storageEnv,WORK_HUB_STATE:`${config.hubPath}/.state`}});
    liveChildren.add(child);let out='';let finished=false;
    const timer=setTimeout(()=>child.kill('SIGTERM'),25000);
    const finish=(err?:Error,result?:unknown)=>{if(finished)return;finished=true;clearTimeout(timer);liveChildren.delete(child);err?reject(err):resolve(result);};

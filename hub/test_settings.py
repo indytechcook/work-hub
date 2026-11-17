@@ -1,3 +1,4 @@
+from test_support import isolate_storage
 import json
 from pathlib import Path
 import tempfile
@@ -9,11 +10,13 @@ from install_local import plans
 
 class SetupPrivacyTests(unittest.TestCase):
     def setUp(self):
+        isolate_storage(self)
+
         self.temp=tempfile.TemporaryDirectory();self.state=Path(self.temp.name)
         self.patch=patch.object(settings,'STATE',self.state);self.patch.start()
     def tearDown(self):self.patch.stop();self.temp.cleanup()
     def configure(self,value):
-        (self.state/'config.json').write_text(json.dumps(value))
+        (self.state/'settings.json').write_text(json.dumps({'config':value}))
     def test_fresh_setup_collects_no_external_sources(self):
         self.assertEqual(settings.selected_sources(),[])
     def test_provider_is_required_for_background_work(self):

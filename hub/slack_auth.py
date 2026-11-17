@@ -8,24 +8,20 @@ import json
 import os
 from pathlib import Path
 import secrets
-import tempfile
+from storage import Store
 import time
 from urllib.parse import urlencode,urlparse,parse_qs
 from settings import slack as slack_settings
 import requests
 ROOT=Path(__file__).resolve().parent
 STATE=ROOT/'.state'
-TOKEN=STATE/'slack-token.json'
 SCOPES=['channels:history','channels:read','groups:history','groups:read','im:history','im:read','mpim:history','mpim:read','search:read.public','search:read.private','search:read.im','search:read.mpim','search:read.users','users:read']
 REDIRECT='http://localhost:3102/slack/callback'
 
 
 def client():
-    values={}
-    for line in (STATE/'slack-client.env').read_text().splitlines():
-        if '=' in line and not line.startswith('#'):
-            key,value=line.split('=',1);values[key.strip()]=value.strip().strip('"').strip("'")
-    return values['SLACK_CLIENT_ID'],values['SLACK_CLIENT_SECRET']
+    value=Store(STATE).read('slack_client') or {}
+    return value['client_id'],value['client_secret']
 
 def save(result):
     scope=result.get('scope','')
@@ -35,22 +31,23 @@ def save(result):
     team=result.get('team_id') or result.get('team',{}).get('id')
     if team and team!=slack_settings()['team_id']:raise ValueError('Unexpected Slack workspace')
     result['expires_at']=time.time()+result['expires_in'] if result.get('expires_in') else None
-    fd,name=tempfile.mkstemp(dir=STATE,prefix='.slack-token-')
-    with os.fdopen(fd,'w') as f:json.dump(result,f);f.flush();os.fsync(f.fileno())
-    os.replace(name,TOKEN)
+    Store(STATE).write('slack_tokens',result)
 
 def access_token():
+    STATE.mkdir(mode=0o700,parents=True,exist_ok=True)
     with (STATE/'slack-refresh.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX)
-        token=json.loads(TOKEN.read_text())
+        token=Store(STATE).read('slack_tokens') or {}
         if token.get('expires_at') and token['expires_at']<time.time()+120:
             if not token.get('refresh_token'):raise RuntimeError('Slack sign-in expired')
+            Store(STATE).require_writable('slack_tokens')
             cid,secret=client()
             r=requests.post('https://slack.com/api/oauth.v2.user.access',data={'grant_type':'refresh_token','refresh_token':token['refresh_token'],'client_id':cid,'client_secret':secret},timeout=30)
             if r.status_code!=200:raise RuntimeError('Slack token renewal failed')
             result=r.json()
             if result.get('ok') is False:raise RuntimeError('Slack token renewal refused')
             if not result.get('scope'):result['scope']=token['scope']
+            if not result.get('refresh_token'):result['refresh_token']=token['refresh_token']
             save(result);token=result
         return token['access_token']
 
@@ -63,7 +60,8 @@ class Handler(BaseHTTPRequestHandler):
         if path.path=='/':
             self.page('Connect Slack to your local Work Hub with the same 14 read-only permissions. No posting, edits or bot access.<p><a href="/connect">Continue to Slack</a></p>');return
         if path.path=='/connect':
-            if TOKEN.exists():self.page('Slack is already connected.');return
+            if Store(STATE).read('slack_tokens') is not None:self.page('Slack is already connected.');return
+            Store(STATE).require_writable('slack_tokens')
             state=secrets.token_urlsafe(32);verifier=secrets.token_urlsafe(64)
             challenge=base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b'=').decode()
             self.server.pending={'state':state,'verifier':verifier,'created_at':time.time()}
@@ -76,6 +74,7 @@ class Handler(BaseHTTPRequestHandler):
             self.server.pending=None
             if query.get('error'):self.page('Slack sign-in was not approved. No credentials were saved.',400);return
             try:
+                Store(STATE).require_writable('slack_tokens')
                 cid,secret=client()
                 response=requests.post('https://slack.com/api/oauth.v2.user.access',data={'grant_type':'authorization_code','client_id':cid,'client_secret':secret,'code':query.get('code',[''])[0],'redirect_uri':REDIRECT,'code_verifier':pending['verifier']},timeout=30)
                 if response.status_code!=200:raise RuntimeError('Token exchange failed')

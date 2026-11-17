@@ -33,6 +33,8 @@ flowchart LR
   Plugin --> UI[Attention, focus, context and follow-ups]
 ```
 
+Configuration and OAuth credentials default to BB’s encrypted Env Catalog, with environment-variable and JSON-file overrides. See [storage and migration](docs/storage.md). The ledger stays in local SQLite.
+
 Python owns the ledger and collectors; a TypeScript plugin supplies the BB interface. Background analysis can use Claude Code or Codex independently of interactive BB model choices. A Claude-only user does not need Codex.
 
 ## Status and boundaries

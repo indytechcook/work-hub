@@ -1,5 +1,5 @@
 """Private per-user configuration. Defaults never enable external source collection."""
-import json
+from storage import Store
 from pathlib import Path
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
@@ -9,11 +9,9 @@ SOURCES={'gmail','calendar','drive','github','linear','slack','meetings','better
 
 
 def load():
-    path=STATE/'config.json'
-    if not path.exists():return {}
-    config=json.loads(path.read_text())
+    config=Store(STATE).read('config') or {}
     if not isinstance(config,dict) or set(config)-{'identity','sources','google','slack','betterstack'}:
-        raise ValueError('Invalid Work Hub config.json')
+        raise ValueError('Invalid Work Hub config record')
     return config
 
 

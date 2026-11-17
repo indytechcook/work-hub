@@ -1,10 +1,8 @@
 """Portable OAuth storage and read-only MCP access, separate from model runtimes."""
 import asyncio
 import fcntl
-import json
-import os
 from pathlib import Path
-import tempfile
+from storage import Store as SettingsStore
 import time
 import httpx
 from pydantic import ValidationError
@@ -24,22 +22,18 @@ class SourceAuthUnavailable(RuntimeError):pass
 
 class Storage(TokenStorage):
     def __init__(self,name):self.name=name;self.root=ROOT/'.state'/name;self.root.mkdir(mode=0o700,exist_ok=True)
+    def settings(self):return SettingsStore(ROOT/'.state')
+    def require_writable(self,kind):self.settings().require_writable(self.name+'_'+kind)
     def read(self,kind,model):
-        p=self.root/(kind+'.json')
-        return model.model_validate_json(p.read_text()) if p.exists() else None
+        data=self.settings().read(self.name+'_'+kind)
+        return model.model_validate(data) if data is not None else None
     def write(self,kind,value):
         data=value.model_dump(mode='json')
         if kind=='tokens':data['_expires_at']=time.time()+value.expires_in if value.expires_in is not None else None
-        fd,name=tempfile.mkstemp(dir=self.root,prefix='.'+kind)
-        with os.fdopen(fd,'w') as f:f.write(json.dumps(data));f.flush();os.fsync(f.fileno())
-        os.replace(name,self.root/(kind+'.json'))
+        self.settings().write(self.name+'_'+kind,data)
     def token_expiry(self):
-        path=self.root/'tokens.json'
-        if not path.exists():return None
-        data=json.loads(path.read_text())
-        # Older files predate absolute expiry persistence; their mtime is the grant time.
-        expiry=data.get('_expires_at')
-        if expiry is None and data.get('expires_in') is not None:expiry=path.stat().st_mtime+data['expires_in']
+        data=self.settings().read(self.name+'_tokens')
+        expiry=data.get('_expires_at') if data else None
         return expiry-60 if expiry is not None else None
     async def get_tokens(self):return self.read('tokens',OAuthToken)
     async def set_tokens(self,tokens):
@@ -55,6 +49,7 @@ class PersistentOAuthProvider(OAuthClientProvider):
         self.context.token_expiry_time=self.context.storage.token_expiry()
 
     async def _refresh_token(self):
+        self.context.storage.require_writable('tokens')
         # SDK refresh skips discovery; a fresh process otherwise posts to the resource's
         # /token, which is not either provider's authorization server.
         if self.context.oauth_metadata is None:
@@ -109,6 +104,8 @@ class PersistentOAuthProvider(OAuthClientProvider):
 
     async def _perform_authorization(self):
         if self.context.callback_handler is None:raise SourceSignInRequired('Interactive sign-in required')
+        self.context.storage.require_writable('tokens')
+        self.context.storage.require_writable('client')
         return await super()._perform_authorization()
 
 def provider(name,redirect=None,callback=None):

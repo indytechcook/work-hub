@@ -1,3 +1,4 @@
+from test_support import isolate_storage
 import json
 from pathlib import Path
 import subprocess
@@ -15,11 +16,13 @@ def stream(*extra,**final):
 
 class RuntimeTests(unittest.TestCase):
     def setUp(self):
+        isolate_storage(self)
+
         self.temp=tempfile.TemporaryDirectory();self.state=Path(self.temp.name)
         self.schema=self.state/'schema.json';self.schema.write_text('{"type":"object"}')
     def tearDown(self):self.temp.cleanup()
     def configure(self,**config):
-        (self.state/'analyzer.json').write_text(json.dumps(config))
+        (self.state/'settings.json').write_text(json.dumps({'analyzer':config}))
     def test_claude_only_install_has_no_codex_dependency_or_source_tools(self):
         self.configure(provider='claude',model='sonnet')
         def locate(command):return '/tools/claude' if command=='claude' else None

@@ -277,8 +277,8 @@ if __name__=='__main__':
     try:
         enabled=selected_sources()
         requested=sys.argv[1:] or enabled
-        if not requested:raise ValueError('No sources enabled in config.json')
-        if any(name not in enabled for name in requested):raise ValueError('Source is not enabled in config.json')
+        if not requested:raise ValueError('No sources enabled in the config record')
+        if any(name not in enabled for name in requested):raise ValueError('Source is not enabled in the config record')
         for name in requested:
             print(json.dumps({'source':name,**collector.collect(name)}),flush=True)
     finally:s.close()

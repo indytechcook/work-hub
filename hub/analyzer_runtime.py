@@ -5,12 +5,12 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+from storage import Store
 
 
 def settings(state, provider=None):
-    path=state/'analyzer.json'
-    config=json.loads(path.read_text()) if path.exists() else {}
-    if not config and provider is None:raise ValueError('Choose an analyzer provider in analyzer.json before background analysis')
+    config=Store(state).read('analyzer') or {}
+    if not config and provider is None:raise ValueError('Choose an analyzer provider in the analyzer record before background analysis')
     if not isinstance(config,dict) or set(config)-{'provider','model','executable'}:
         raise ValueError('Invalid analyzer settings')
     configured=config.get('provider')

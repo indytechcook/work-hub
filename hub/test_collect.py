@@ -1,3 +1,4 @@
+from test_support import isolate_storage
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,7 +7,9 @@ from store import Store
 from collect import Collector,receipt,failure_detail
 
 class CollectorTests(unittest.TestCase):
-    def setUp(self):self.temp=tempfile.TemporaryDirectory();self.s=Store(Path(self.temp.name)/'work.db');self.c=Collector(self.s);self.state_patch=patch("collect.STATE",Path(self.temp.name));self.state_patch.start()
+    def setUp(self):
+        isolate_storage(self)
+        self.temp=tempfile.TemporaryDirectory();self.s=Store(Path(self.temp.name)/'work.db');self.c=Collector(self.s);self.state_patch=patch("collect.STATE",Path(self.temp.name));self.state_patch.start()
     def tearDown(self):self.state_patch.stop();self.s.close();self.temp.cleanup()
     def test_source_failure_does_not_advance_checkpoint(self):
         self.s.ingest('gmail',[],checkpoint={'through':123},scope='initial')

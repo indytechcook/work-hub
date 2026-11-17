@@ -1,3 +1,4 @@
+from test_support import isolate_storage
 import tempfile
 import time
 import unittest
@@ -8,6 +9,8 @@ from store import Store, digest
 
 class LedgerTests(unittest.TestCase):
     def setUp(self):
+        isolate_storage(self)
+
         self.temp=tempfile.TemporaryDirectory(); self.path=Path(self.temp.name)/'work.db';self.s=Store(self.path)
     def tearDown(self):self.s.close();self.temp.cleanup()
     def ingest(self, version='1', body='I will send the draft tomorrow.', **extra):

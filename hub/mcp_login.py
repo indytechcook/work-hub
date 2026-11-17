@@ -8,9 +8,10 @@ import queue
 import sys
 import threading
 from urllib.parse import urlparse,parse_qs
-from mcp_access import PROVIDERS,provider,invoke,ROOT
+from mcp_access import PROVIDERS,provider,invoke,ROOT,Storage
 
 def main(name):
+    Storage(name).require_writable('tokens');Storage(name).require_writable('client')
     config=PROVIDERS[name];callbacks=queue.Queue();state={'url':None}
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args):pass

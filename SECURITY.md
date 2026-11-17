@@ -4,7 +4,7 @@ Work Hub is an experimental **single-user local application**. It is not a multi
 
 ## Data handling
 
-The SQLite ledger contains private excerpts, commitments, and links. Tokens and credentials are stored separately under ignored `hub/.state/` with owner-only files. They are not encrypted by the application. Backups and ledger exports also contain private data; protect them and never attach them to public issues.
+The SQLite ledger contains private excerpts, commitments, and links. Work Hub configuration and OAuth client/token records default to BB’s Env Catalog plugin, which encrypts values with AES-256-GCM. Its encryption key is stored on the BB host; this does not protect against a compromised OS account. Environment overrides are process-readable; explicit JSON overrides are plaintext and written atomically with mode 0600. There is no automatic plaintext fallback. The ledger remains unencrypted. See [storage boundaries and migration](docs/storage.md). Backups and ledger exports also contain private data; protect them and never attach them to public issues.
 
 Collection is off until configured. BB capture is a separate opt-in and currently spans recent unarchived threads across projects, including hidden threads. There is no per-project filter. Selected source excerpts are sent to the explicitly configured Claude or Codex service. Background analysis shares the selected account's usage/billing. No provider fallback is performed.
 

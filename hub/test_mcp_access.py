@@ -1,3 +1,4 @@
+from test_support import isolate_storage
 """Run with .venv/bin/python for the pinned MCP SDK."""
 import importlib.util
 import json
@@ -19,6 +20,8 @@ if HAS_MCP:
 @unittest.skipUnless(HAS_MCP,'Run connector tests with the MCP virtualenv')
 class RefreshTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        isolate_storage(self)
+
         self.temp=tempfile.TemporaryDirectory()
         root=Path(self.temp.name);(root/'.state').mkdir()
         self.root_patch=patch.object(access,'ROOT',root);self.root_patch.start()
@@ -34,9 +37,8 @@ class RefreshTests(unittest.IsolatedAsyncioTestCase):
         store=access.Storage(name)
         await store.set_client_info(OAuthClientInformationFull(client_id='test-client',issuer=self.issuer,token_endpoint_auth_method='none',redirect_uris=['http://localhost:3103/callback']))
         await store.set_tokens(OAuthToken(access_token='expired-access',refresh_token='old-refresh',token_type='Bearer',expires_in=7200,scope='read' if name=='betterstack' else None))
-        path=store.root/'tokens.json'
-        data=json.loads(path.read_text());data.pop('_expires_at');path.write_text(json.dumps(data))
-        os.utime(path,(time.time()-9000,time.time()-9000))
+        data=store.settings().read(name+'_tokens');data['_expires_at']=time.time()-100
+        store.settings().write(name+'_tokens',data)
         return store
     def handler(self,request):
         self.requests.append(request)
@@ -63,7 +65,7 @@ class RefreshTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(access.httpx,'AsyncClient',side_effect=client):
             async with client() as session:
                 return await session.get(access.PROVIDERS[name]['url'],auth=access.provider(name))
-    async def test_expired_legacy_tokens_refresh_at_discovered_server_after_restart(self):
+    async def test_expired_tokens_refresh_at_discovered_server_after_restart(self):
         for name in ('betterstack','granola'):
             with self.subTest(provider=name):
                 self.resource=access.PROVIDERS[name]['url']
@@ -72,12 +74,12 @@ class RefreshTests(unittest.IsolatedAsyncioTestCase):
                 saved=await store.get_tokens()
                 self.assertEqual(saved.refresh_token,'old-refresh')
                 self.assertEqual(saved.scope,'read' if name=='betterstack' else None)
-                expiry=json.loads((store.root/'tokens.json').read_text())['_expires_at']
+                expiry=store.settings().read(store.name+'_tokens')['_expires_at']
                 self.assertGreater(expiry,time.time())
                 self.requests.clear()
                 await self.request(name)
                 self.assertEqual(len(self.requests),1)
-                self.assertEqual(json.loads((store.root/'tokens.json').read_text())['_expires_at'],expiry)
+                self.assertEqual(store.settings().read(store.name+'_tokens')['_expires_at'],expiry)
     async def test_rotated_refresh_token_is_persisted(self):
         store=await self.seed();self.refresh_body['refresh_token']='rotated-refresh'
         await self.request()
@@ -96,16 +98,24 @@ class RefreshTests(unittest.IsolatedAsyncioTestCase):
                 setattr(self,field,original)
     async def test_rejected_grant_reports_signin_without_replacing_tokens(self):
         store=await self.seed();self.refresh_status=400;self.refresh_body={'error':'invalid_grant'}
-        before=(store.root/'tokens.json').read_bytes()
+        before=store.settings().read(store.name+'_tokens')
         with self.assertRaises(access.SourceSignInRequired):await self.request()
-        self.assertEqual((store.root/'tokens.json').read_bytes(),before)
+        self.assertEqual(store.settings().read(store.name+'_tokens'),before)
     async def test_transient_failure_does_not_trigger_signin_or_replace_tokens(self):
         store=await self.seed();self.refresh_status=503;self.refresh_body={}
-        before=(store.root/'tokens.json').read_bytes()
+        before=store.settings().read(store.name+'_tokens')
         with self.assertRaises(access.SourceAuthUnavailable):await self.request()
-        self.assertEqual((store.root/'tokens.json').read_bytes(),before)
+        self.assertEqual(store.settings().read(store.name+'_tokens'),before)
     async def test_broader_scope_is_rejected(self):
         store=await self.seed();self.refresh_body['scope']='read write'
-        before=(store.root/'tokens.json').read_bytes()
+        before=store.settings().read(store.name+'_tokens')
         with self.assertRaises(ValueError):await self.request()
-        self.assertEqual((store.root/'tokens.json').read_bytes(),before)
+        self.assertEqual(store.settings().read(store.name+'_tokens'),before)
+
+    async def test_environment_token_refuses_rotation_before_network(self):
+        store=await self.seed()
+        token=store.settings().read('betterstack_tokens')
+        from storage import StorageError
+        with patch.dict(os.environ,{'WORK_HUB_BETTERSTACK_TOKENS_JSON':json.dumps(token)}):
+            with self.assertRaises(StorageError):await self.request()
+        self.assertEqual(self.requests,[])

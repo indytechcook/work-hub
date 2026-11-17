@@ -8,6 +8,7 @@ import subprocess
 import sys
 from analyzer_runtime import settings as analyzer_settings
 from settings import identity,selected_sources
+from storage import Store
 
 ROOT=Path(__file__).resolve().parent
 STATE=ROOT/'.state'
@@ -29,12 +30,14 @@ def plans(context,env,sources):
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--dry-run',action='store_true');args=parser.parse_args()
     if sys.platform!='darwin':raise RuntimeError('This installer currently supports macOS only')
+    if any(key.startswith('WORK_HUB_') and key.endswith('_JSON') for key in os.environ):
+        raise ValueError('Environment JSON overrides are not copied to launchd; use BB storage or an explicit JSON bundle for scheduled jobs')
     identity();analyzer_settings(STATE);sources=selected_sources()
-    context=json.loads((STATE/'bb-context.json').read_text())
+    context=Store(STATE).read('bb_context') or {}
     project=context['project']['id']
     if not isinstance(project,str) or not project.startswith('proj_'):raise ValueError('Capture your BB project context first')
     env={'PATH':os.environ['PATH'],'HOME':str(Path.home()),'BB_PROJECT_ID':project}
-    for key in ('BB_CLI','BB_SERVER_URL','BB_SERVER_TOKEN','BB_DATA_DIR'):
+    for key in ('BB_CLI','BB_SERVER_URL','BB_SERVER_TOKEN','BB_DATA_DIR','WORK_HUB_STORAGE','WORK_HUB_CONFIG_FILE','WORK_HUB_PROFILE'):
         if os.environ.get(key):env[key]=os.environ[key]
     jobs=plans(context,env,sources)
     folder=Path.home()/'Library/LaunchAgents'
@@ -43,8 +46,7 @@ def main():
     if args.dry_run:
         print(json.dumps({'sources':sources,'jobs':[{k:job[k] for k in ('Label','ProgramArguments','StartInterval')} for job in jobs.values()]}));return
     folder.mkdir(exist_ok=True)
-    policy=STATE/'policy.json'
-    if not policy.exists():policy.write_text(json.dumps({'max_analyses_per_day':120})+'\n');policy.chmod(0o600)
+    if Store(STATE).read('policy') is None:Store(STATE).write('policy',{'max_analyses_per_day':120})
     written=[];loaded=[]
     try:
         for kind,job in jobs.items():

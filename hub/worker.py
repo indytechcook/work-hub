@@ -1,4 +1,5 @@
 """One bounded analysis invocation; launchd serializes runs and replays after wake."""
+from storage import Store as SettingsStore
 import datetime as dt
 import json
 import os
@@ -39,7 +40,7 @@ def main():
         with store.db:
             store.db.execute("UPDATE events SET analysis_state='metadata_only' WHERE analysis_state='pending' AND conversation_id IN (SELECT id FROM conversations WHERE source='drive')")
         for _ in range(5):
-            policy=json.loads((STATE/'policy.json').read_text())
+            policy=SettingsStore(STATE).read('policy') or {'max_analyses_per_day':120}
             reservation=reserve(store,policy,time.time())
             if not reservation.get('reserved'):
                 print(json.dumps(reservation),flush=True);break
