@@ -16,7 +16,7 @@ Retain the analyzer's isolation flags, schema checks and tool restrictions. Clau
 
 Connect selected sources one at a time through the local authentication helpers. I will complete interactive authentication and review actual consent, including grants broader than the collector's reads. Verify correct accounts, scope, a bounded read, source status and token refresh. Preserve checkpoints on failure. Leave unavailable sources visibly pending and finish the independent pieces. Do not send messages, post reviews, change issues, enable unattended coding workers, pause existing routines, deploy cloud workers or expose laptop ports.
 
-Build/install the BB plugin and verify it in actual BB: context, associations, start/resume an agent, multiple focus items, removing one focus, follow-up resolution and sidebar links. Use synthetic fixtures; demo host simulations do not count as real BB integration evidence.
+Build/install the BB plugin, confirm the five bundled Work Hub skills are discoverable with bb skill list, and verify it in actual BB: context, associations, start/resume an agent, multiple focus items, removing one focus, follow-up resolution and sidebar links. Use synthetic fixtures; demo host simulations do not count as real BB integration evidence.
 
 Run the tests and the installer dry-run. Capture BB context from my own project, verify the planned jobs and only selected source arguments, then install the intended jobs without overwriting unrelated services. BB-only setup should have no external collector. Use 120 background analysis attempts/day unless I choose otherwise. Verify the background process can authenticate with the selected account, not just the interactive terminal.
 

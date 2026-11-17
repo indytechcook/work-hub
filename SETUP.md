@@ -135,6 +135,10 @@ bb work-hub sync
 
 `sync` reconciles BB conversations only. Keep reminders off until you choose them and test delivery.
 
+### Verify the bundled skills
+
+Run `bb skill list --json` and confirm `work-hub`, `work-hub-plan`, `work-hub-resume`, `work-hub-follow-up`, and `work-hub-checkpoint`. They are imported with the plugin across BB providers. Start a new thread to discover updates; user/project skills with the same name can override them. See [the skill guide](docs/skills.md) for example prompts and operation limits.
+
 ## 6. Connect selected sources
 
 Add each selected source to `config.json` before its collector test. OAuth success alone is not enough: verify a bounded read, correct account/scope, and a successful source status. Sign-in opens temporary loopback-only callbacks. Let the human complete consent and review grants that exceed the reads the collector performs.

@@ -15,6 +15,10 @@ Work Hub brings related conversations, source evidence, next actions and follow-
 - Supports full-screen, portrait-monitor and narrow-sidebar layouts.
 - Opens linked PRs/issues in BB's sidebar and provides related context inside threads.
 
+## Daily workflow skills
+
+The plugin includes `work-hub`, `work-hub-plan`, `work-hub-resume`, `work-hub-follow-up`, and `work-hub-checkpoint`. Ask your AI to plan the day, resume work, review commitments, or save a return point. They use your configured Work Hub and work across BB providers; no personal orchestration skill is needed. See [skill usage and limits](docs/skills.md).
+
 ## Architecture
 
 ```mermaid
