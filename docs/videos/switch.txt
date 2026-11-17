@@ -1,0 +1,7 @@
+Switch related model threads
+
+Related conversations can use different models. Each conversation keeps its own return point while sharing the work.
+
+Here is the workflow. Find the independent review. Open the related Claude conversation. Read this conversation’s next step.
+
+This opens another related thread. It does not change the model of a running conversation. The conversations stay connected through their shared work item.

@@ -1,0 +1,7 @@
+What is Work Hub?
+
+Work Hub helps you keep your place when your day is spread across messages, tickets, meetings, and AI conversations. It brings the context and commitments for each piece of work into one place, so you can see what needs you and pick up where you left off.
+
+Here is the workflow. Start with a work item. It groups related conversations and sources, along with a saved next step. Here, release readiness has its own context, evidence, and open commitments. Needs attention shows captured promises, decisions, and problems that need a response. Review the evidence, then choose an action. Marking something seen does not mean the work is finished. Focus keeps one or more work items close at hand. Resume opens an existing conversation with its saved context. Related conversations can use different AI models and still belong to the same work.
+
+Use the full work surface to plan, the portrait view to notice important arrivals, and the thread sidebar to stay oriented while working. Start with one item: read its next step, review what you owe, and continue the conversation. The following videos show each workflow in detail.

@@ -4,7 +4,13 @@ Keep your place across parallel work, AI conversations, and incoming requests.
 
 Work Hub brings related conversations, source evidence, next actions and follow-ups into a local work register inside [BB](https://getbb.app/). Focus several work items, see important arrivals, resume a conversation, or start a related agent with the context already assembled.
 
-**Start here:** [Complete setup guide](SETUP.md) · [Copy/paste AI setup prompt](SETUP-PROMPT.md) · [Security and privacy](SECURITY.md)
+**Start here:** [Introduction and videos](docs/videos/README.md) · [Complete setup guide](SETUP.md) · [Copy/paste AI setup prompt](SETUP-PROMPT.md) · [Security and privacy](SECURITY.md)
+
+## Watch the introduction
+
+[![Watch: What is Work Hub?](docs/videos/overview.png)](docs/videos/overview.mp4)
+
+Start with the 77-second overview, then explore [nine short workflow walkthroughs](docs/videos/README.md). Every video includes clean narration, captions and a transcript.
 
 ## What it does
 

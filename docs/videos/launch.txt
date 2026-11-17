@@ -1,0 +1,7 @@
+Launch an agent deliberately
+
+Focus is an attention choice. Starting an agent is a separate, explicit action with saved context.
+
+Here is the workflow. Prepare a new agent conversation. Review the model, workspace, and saved context. Submit through the demo host.
+
+In BB, the composer launches and links the new conversation, so the agent starts with the context for this work. Automatic review and error fixers remain off.

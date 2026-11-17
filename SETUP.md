@@ -4,6 +4,8 @@ Work Hub keeps related AI conversations, source evidence, next actions and commi
 
 **AI-assisted route:** get this repository, install BB, open the source folder as a BB project, then paste [SETUP-PROMPT.md](SETUP-PROMPT.md) into a new thread. A working Claude Code installation is sufficient; Codex is optional.
 
+New to Work Hub? Watch the [introduction and walkthrough videos](docs/videos/README.md) before setup.
+
 ## 1. Requirements and source
 
 The supported setup path currently targets macOS. Background jobs use `launchd`; the computer must be awake and the user logged in. No public laptop ports, webhook receiver, cloud worker or router configuration are needed. Other operating systems require scheduler/locking qualification.

@@ -1,0 +1,7 @@
+Resume a task
+
+Resume starts with the saved next action and the conversation you chose. It does not launch a new agent.
+
+Here is the workflow. Read your chosen next step. Resume the existing conversation. Recover the thread’s return point.
+
+The narrow work context shows this thread’s checkpoint, then its commitments and related conversations. Your next step stays visible as you continue the conversation.

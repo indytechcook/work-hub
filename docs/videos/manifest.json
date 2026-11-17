@@ -1,0 +1,88 @@
+{
+  "created": "2026-11-17",
+  "synthetic": true,
+  "native_host_simulated": true,
+  "videos": [
+    {
+      "id": "overview",
+      "title": "What is Work Hub?",
+      "description": "Work Hub helps you keep your place when your day is spread across messages, tickets, meetings, and AI conversations. It brings the context and commitments for each piece of work into one place, so you can see what needs you and pick up where you left off.",
+      "seconds": 77,
+      "portrait": false,
+      "mode": "Introduction"
+    },
+    {
+      "id": "morning",
+      "title": "Start the morning",
+      "description": "Start with a small, deliberate plan. The hub keeps your chosen focus separate from the work you are browsing.",
+      "seconds": 30,
+      "portrait": false,
+      "mode": "Work surface"
+    },
+    {
+      "id": "urgent",
+      "title": "Respond to urgent input",
+      "description": "Important captured commitments appear in attention. They explain why you are needed, without changing your focus.",
+      "seconds": 26,
+      "portrait": false,
+      "mode": "Work surface"
+    },
+    {
+      "id": "resume",
+      "title": "Resume a task",
+      "description": "Resume starts with the saved next action and the conversation you chose. It does not launch a new agent.",
+      "seconds": 31,
+      "portrait": false,
+      "mode": "Thread sidebar"
+    },
+    {
+      "id": "switch",
+      "title": "Switch related model threads",
+      "description": "Related conversations can use different models. Each conversation keeps its own return point while sharing the work.",
+      "seconds": 31,
+      "portrait": false,
+      "mode": "Thread sidebar"
+    },
+    {
+      "id": "associate",
+      "title": "Associate a shared source",
+      "description": "A source can support several work items. Sharing keeps one evidence record and one commitment identity.",
+      "seconds": 30,
+      "portrait": false,
+      "mode": "Work surface"
+    },
+    {
+      "id": "commitment",
+      "title": "Complete a commitment",
+      "description": "Commitments have their own status. Completing shared work does not automatically fulfill a promise.",
+      "seconds": 30,
+      "portrait": false,
+      "mode": "Work surface"
+    },
+    {
+      "id": "launch",
+      "title": "Launch an agent deliberately",
+      "description": "Focus is an attention choice. Starting an agent is a separate, explicit action with saved context.",
+      "seconds": 34,
+      "portrait": false,
+      "mode": "Work surface"
+    },
+    {
+      "id": "evening",
+      "title": "Finish the day",
+      "description": "Leaving a return note makes tomorrow easier. Close-out is optional, so progress does not depend on a perfect evening ritual.",
+      "seconds": 32,
+      "portrait": false,
+      "mode": "Work surface"
+    },
+    {
+      "id": "vertical",
+      "title": "Notice important new arrivals",
+      "description": "On a dedicated vertical monitor, a pinned arrival area makes important captured input visible while your focus stays steady.",
+      "seconds": 36,
+      "portrait": true,
+      "mode": "Portrait monitor"
+    }
+  ],
+  "narration": "Voice only; en-US-AndrewNeural; no music, ambient tracks, or sound effects"
+}

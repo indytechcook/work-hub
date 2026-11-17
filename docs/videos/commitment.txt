@@ -1,0 +1,7 @@
+Complete a commitment
+
+Commitments have their own status. Completing shared work does not automatically fulfill a promise.
+
+Here is the workflow. Open the commitment and its evidence. Record what fulfilled the promise. Mark this one commitment fulfilled.
+
+The completed commitment remains in history and resolves everywhere it is shared. The work itself remains active, and no message is sent.

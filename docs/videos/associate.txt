@@ -1,0 +1,7 @@
+Associate a shared source
+
+A source can support several work items. Sharing keeps one evidence record and one commitment identity.
+
+Here is the workflow. Open the source’s associations. Find the customer pilot. Add the existing source to that work.
+
+Both work items now share the same commitment. Removing an association would unlink the source, without deleting its content.
