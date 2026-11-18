@@ -36,7 +36,8 @@ class LabelMixin:
             batch=ids[offset:offset+400]
             matches=self.db.execute('''SELECT m.work_id,c.id,c.title,c.external_id,e.text FROM work_memberships m
                 JOIN conversations c ON c.id=m.conversation_id LEFT JOIN events e ON e.id=c.latest_event
-                WHERE c.source='slack' AND m.work_id IN ('''+','.join('?' for _ in batch)+''')
+                WHERE c.source='slack' AND NOT EXISTS(SELECT 1 FROM meta n WHERE n.key='work_name:' || m.work_id)
+                AND m.work_id IN ('''+','.join('?' for _ in batch)+''')
                 ORDER BY (c.id=m.work_id) DESC,e.occurred_at DESC,c.id''',batch)
             handled=set()
             for c in matches:

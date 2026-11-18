@@ -100,7 +100,7 @@ class LifecycleMixin:
                 # Attach source evidence; never steal its existing primary work or undo manual choices.
                 own=self.db.execute('SELECT work_id FROM conversations WHERE id=?',(source_conversation_id,)).fetchone()
                 manual=self.db.execute('SELECT 1 FROM manual_links WHERE conversation_id=?',(source_conversation_id,)).fetchone()
-                if own and own['work_id']==source_conversation_id and own['work_id']!=current['work_id'] and not manual and not self.db.execute('SELECT 1 FROM obligations WHERE conversation_id=?',(source_conversation_id,)).fetchone() and not self._record('intent:'+own['work_id'],None):
+                if own and own['work_id']==source_conversation_id and own['work_id']!=current['work_id'] and not manual and not self.db.execute('SELECT 1 FROM obligations WHERE conversation_id=?',(source_conversation_id,)).fetchone() and not self._record('intent:'+own['work_id'],None) and not self._record('work_name:'+own['work_id'],None):
                     self.db.execute('UPDATE conversations SET work_id=? WHERE id=?',(current['work_id'],source_conversation_id))
                 else:
                     self.db.execute('INSERT OR IGNORE INTO conversation_work_links VALUES (?,?)',(source_conversation_id,current['work_id']))

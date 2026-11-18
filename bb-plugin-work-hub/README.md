@@ -10,6 +10,8 @@ The core stores state outside BB. Model-based analysis sends selected excerpts t
 
 **Start agent** opens the native BB composer on work cards and follow-ups. It seeds editable source context, lets the user choose execution settings, and tracks the created thread through BB plugin metadata and the portable register. Existing BB conversations supply a default project/parent; external-only items require choosing the appropriate project when needed. Focus continues to only mark priority.
 
+**Rename work** appears beneath the work title in both the main reading pane and thread context sidebar. The editor accepts a single line of 1–200 Unicode characters, trims surrounding spaces, supports Enter to save and Cancel/Escape to discard, and preserves the draft on errors. Concurrent renames reject stale versions; **Reload saved name (discard edits)** loads the current choice before retrying. Work names persist through collection, analysis, restart and export/import, including names beginning with “Slack”. Source titles and previews remain in Sources & associations. Lists, association selectors, day plans, thread context and newly prepared agent prompts use the saved name.
+
 ## Three working modes
 
 The dashboard uses a selected-work reading pane and a separate list of focused work. Choose **Portrait monitor** for a persistent important-arrivals lane, **Work surface** for list/detail/attention, or **Auto** to follow the available panel dimensions. Below 720px the work surface uses list/detail navigation. The native thread **Work context** tab remains a compact 360px-friendly sidebar with a thread-specific checkpoint, shared commitments, related model conversations and progressively disclosed source evidence.

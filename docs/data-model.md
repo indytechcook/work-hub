@@ -91,6 +91,7 @@ A request can exist before the referenced source conversation has been fetched. 
 
 | Key pattern | Stored meaning |
 |---|---|
+| `work_name:<work_id>` | Explicit user-name marker, monotonically increasing version and update time. The name itself is stored in `work.title`; the marker prevents automatic Slack labels or context regrouping from replacing the choice. Renames reject stale name versions independently of source/analysis updates. |
 | `intent:<work_id>` | User-chosen next action, purpose, project label and optional resume thread, with version and update time. Model summaries do not overwrite this intent. |
 | `checkpoint:<conversation_id>` | Event ID and occurrence, receipt and analysis times for the last applied analysis; ties the model return point to its source version. |
 | `handoff:<conversation_id>` | Current agent-reported status, progress, remaining work, next action, blocker, evidence links, report/turn times and origin, plus up to five previous snapshots. Separate from the asynchronous `return_points` table. |

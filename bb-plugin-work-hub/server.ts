@@ -5,6 +5,7 @@ import { defineRpcContract, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import {registerHandoffs} from './handoff-hook';
 import {registerContextHook} from './context-hook';
+import {workNameError} from './work-name';
 import {pinFocusedThreads} from './focus-pins';
 import { launchContext } from './launch-context';
 
@@ -12,7 +13,7 @@ const intent=z.object({next_action:z.string(),purpose:z.string(),project:z.strin
 const checkpoint=z.object({event_id:z.string(),occurred_at:z.number(),received_at:z.number(),analyzed_at:z.number()});
 const handoff=z.object({status:z.string(),progress:z.string(),remaining:z.string(),next_action:z.string(),blocker:z.string(),evidence:z.array(z.string()),at:z.number(),turn_at:z.number(),origin:z.string()});
 const conversation = z.object({handoff:handoff.nullable().optional(),role:z.string().optional(),preview:z.object({text:z.string(),author:z.string(),at:z.number(),replies:z.number().nullable()}).nullable().optional(),work_ids:z.array(z.string()),id:z.string(),source:z.string(),external_id:z.string(),title:z.string(),url:z.string(),model:z.string(),updated_at:z.number(),summary:z.string().nullable(),next_action:z.string().nullable(),checkpoint_at:z.number().nullable(),analysis_state:z.string().nullable(),latest_occurred_at:z.number().nullable(),checkpoint:checkpoint.nullable()});
-const work = z.object({id:z.string(),title:z.string(),status:z.string(),focus:z.number(),summary:z.string(),next_action:z.string(),updated_at:z.number(),intent,decisions:z.array(z.object({id:z.string(),conversation_id:z.string(),text:z.string(),quote:z.string(),event_id:z.string()})),conversations:z.array(conversation)});
+const work = z.object({id:z.string(),title:z.string(),title_version:z.number().int().nonnegative(),status:z.string(),focus:z.number(),summary:z.string(),next_action:z.string(),updated_at:z.number(),intent,decisions:z.array(z.object({id:z.string(),conversation_id:z.string(),text:z.string(),quote:z.string(),event_id:z.string()})),conversations:z.array(conversation)});
 const obligation = z.object({work_ids:z.array(z.string()),id:z.string(),work_id:z.string(),conversation_id:z.string(),title:z.string(),owner:z.string(),direction:z.string(),due_at:z.number().nullable(),state:z.string(),version:z.number(),evidence_quote:z.string(),resolution:z.string().nullable(),updated_at:z.number()});
 const attention=z.object({token:z.string(),kind:z.string(),entity_id:z.string(),title:z.string(),reason:z.string(),rank:z.number(),work_ids:z.array(z.string()),source:z.string(),at:z.number(),occurred_at:z.number().nullable(),received_at:z.number().nullable(),seen:z.boolean()});
 const dayPlan=z.object({date:z.string(),work_ids:z.array(z.string()),note:z.string(),version:z.number(),updated_at:z.number().nullable()});
@@ -49,6 +50,7 @@ export const rpcContract = defineRpcContract({
  snapshot:{input:z.null(),output:snapshotSchema},
  workDetail:{input:z.object({workId:z.string().max(100)}),output:workDetail},
  workIndex:{input:z.object({query:z.string().max(200),status:z.enum(['all','active','waiting','done']),offset:z.number().int().min(0).max(100000)}),output:workIndex},
+ renameWork:{input:z.object({workId:z.string().max(100),version:z.number().int().nonnegative(),title:z.string().max(1000).refine(value=>!workNameError(value),'Use a single-line work name of 1–200 characters')}),output:z.object({title:z.string(),title_version:z.number().int().nonnegative()})},
  saveIntent:{input:z.object({workId:z.string().max(100),version:z.number().int().nonnegative(),next_action:z.string().max(1500),purpose:z.string().max(3000),project:z.string().max(120),thread_id:z.string().nullable()}),output:intent},
  saveDayPlan:{input:z.object({date:z.string(),version:z.number().int().nonnegative(),work_ids:z.array(z.string()).max(12),note:z.string().max(3000)}),output:dayPlan},
  acknowledgeAttention:{input:z.object({tokens:z.array(z.string().length(32)).max(100)}),output:z.object({ok:z.boolean()})},
@@ -172,6 +174,7 @@ export default async function plugin(bb:BbPluginApi) {
   associate:async({conversationId,workId,action})=>{const result=z.object({ok:z.boolean()}).parse(await core('associate',{conversation_id:conversationId,work_id:workId,action}));bb.realtime.publish('changed',{});return result;},
   workDetail:async({workId})=>workDetail.parse(await core('work_detail',{work_id:workId})),
   workIndex:async args=>workIndex.parse(await core('work_index',args)),
+  renameWork:async({workId,...args})=>{const result=await core('rename_work',{work_id:workId,...args});bb.realtime.publish('changed',{});return z.object({title:z.string(),title_version:z.number().int().nonnegative()}).parse(result);},
   saveIntent:async({workId,...args})=>{const result=intent.parse(await core('save_intent',{work_id:workId,...args}));bb.realtime.publish('changed',{});return result;},
   saveDayPlan:async args=>{const result=dayPlan.parse(await core('save_day_plan',args));bb.realtime.publish('changed',{});return result;},
   acknowledgeChanges:async args=>{const result=z.object({ok:z.boolean()}).parse(await core('acknowledge_changes',args));bb.realtime.publish('changed',{});return result;},

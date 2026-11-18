@@ -8,6 +8,7 @@ import time
 from datetime import datetime
 from settings import timezone as local_timezone
 import hashlib
+import unicodedata
 
 
 def fingerprint(*parts):
@@ -25,6 +26,25 @@ class PresentationMixin:
 
     def intent(self, work_id):
         return self._record('intent:'+work_id, dict(next_action='', purpose='', project='', thread_id=None, version=0, updated_at=None))
+
+    def rename_work(self, work_id, version, title):
+        if not isinstance(title,str) or any(unicodedata.category(c) in ('Cc','Zl','Zp') for c in title):
+            raise ValueError('Use a single-line work name without control characters')
+        title=title.strip()
+        if not 1<=len(title)<=200:raise ValueError('Work name must be 1–200 characters')
+        if type(version) is not int or version<0:raise ValueError('Invalid name version')
+        with self.db:
+            self.db.execute('BEGIN IMMEDIATE')
+            if not self.db.execute('SELECT 1 FROM work WHERE id=?',(work_id,)).fetchone():raise ValueError('Unknown work')
+            current=self._record('work_name:'+work_id,dict(version=0))
+            if current['version']!=version:raise ValueError('This work name changed in another view. Reload the saved name before saving.')
+            now=time.time()
+            self.db.execute('UPDATE work SET title=?,updated_at=? WHERE id=?',(title,now,work_id))
+            # An explicit marker distinguishes even a user name beginning with Slack
+            # from an automatic source label. Export/import already includes meta.
+            self._put_record('work_name:'+work_id,dict(version=version+1,updated_at=now))
+            self.change('work_renamed',work_id,title)
+        return dict(title=title,title_version=version+1)
 
     def save_intent(self, work_id, version, next_action, purpose='', project='', thread_id=None):
         for value, limit in [(next_action,1500),(purpose,3000),(project,120)]:

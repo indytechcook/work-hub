@@ -121,7 +121,8 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, Labe
             # Reconcile parents that arrived later without undoing explicit manual links.
             self.db.execute('''UPDATE conversations SET work_id=(SELECT p.work_id FROM conversations p WHERE p.id=conversations.parent_id)
                 WHERE parent_id IS NOT NULL AND EXISTS(SELECT 1 FROM conversations p WHERE p.id=conversations.parent_id)
-                AND NOT EXISTS(SELECT 1 FROM manual_links m WHERE m.conversation_id=conversations.id)''')
+                AND NOT EXISTS(SELECT 1 FROM manual_links m WHERE m.conversation_id=conversations.id)
+                AND NOT EXISTS(SELECT 1 FROM meta n WHERE n.key='work_name:' || conversations.work_id)''')
             self.db.execute('UPDATE obligations SET work_id=(SELECT c.work_id FROM conversations c WHERE c.id=obligations.conversation_id)')
             state = 'current' if complete else 'partial'
             if not targeted:
@@ -368,7 +369,13 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, Labe
         return o
 
     def _work_detail(self, row):
-        w=self.label_work_rows([dict(row)])[0]
+        w=dict(row)
+        # Read the editable title and its version in one SQLite snapshot. A
+        # concurrent rename must never pair an old title with the new version.
+        name=self.db.execute("SELECT w.title,n.value name_record FROM work w LEFT JOIN meta n ON n.key='work_name:' || w.id WHERE w.id=?",(w['id'],)).fetchone()
+        w['title']=name['title']
+        w['title_version']=json.loads(name['name_record'])['version'] if name['name_record'] else 0
+        w=self.label_work_rows([w])[0]
         w['intent']=self.intent(w['id'])
         w['decisions']=[dict(r) for r in self.db.execute('SELECT d.id,d.conversation_id,d.text,d.quote,d.evidence_event event_id FROM decisions d JOIN work_memberships m ON m.conversation_id=d.conversation_id WHERE m.work_id=?',(w['id'],))]
         w['conversations']=[dict(r) for r in self.db.execute('SELECT c.id,c.source,c.external_id,c.title,c.url,c.model,c.updated_at,r.summary,r.next_action,r.updated_at checkpoint_at,e.analysis_state,e.occurred_at latest_occurred_at,CASE WHEN c.source="slack" THEN e.text ELSE NULL END preview_text FROM conversations c JOIN work_memberships m ON m.conversation_id=c.id LEFT JOIN return_points r ON r.conversation_id=c.id LEFT JOIN events e ON e.id=c.latest_event WHERE m.work_id=? ORDER BY c.updated_at DESC',(w['id'],))]

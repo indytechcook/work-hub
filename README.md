@@ -17,12 +17,14 @@ Start with the 77-second overview, then explore [nine short workflow walkthrough
 - Connects BB conversations across models without moving or replacing their transcripts.
 - Focusing a work item pins its linked, unarchived BB threads. You can manage those pins in BB after removing focus.
 - Tracks what you owe and what others owe you, with source evidence and shared status.
-- Keeps user-chosen next actions separate from model suggestions.
+- Keeps user-chosen work names and next actions through source updates and model analysis.
 - Reads selected Google, Slack, Linear, GitHub, Granola and Better Stack sources.
 - Supports full-screen, portrait-monitor and narrow-sidebar layouts.
 - Opens linked PRs/issues in BB's sidebar and provides related context inside threads.
 
 [Automatic context and completion review](docs/work-lifecycle.md) connects new conversations to their sources and checks whether commitments are already fulfilled.
+
+Open a work item and choose **Rename work** beneath its title, in either Work Hub or a thread’s **Work context** sidebar. Enter a name and **Save name**, or **Cancel** to discard it. Names are 1–200 characters; competing edits require reloading the saved name before retrying. Source conversation titles and evidence remain separate.
 
 ## Daily workflow skills
 
@@ -84,7 +86,8 @@ Install dependencies using SETUP.md, then run:
 ```bash
 .venv/bin/python -m unittest discover -s hub -p 'test_*.py'
 .venv/bin/python -m unittest discover -s connectors/google -p 'test_*.py'
-node --experimental-strip-types --test bb-plugin-work-hub/reference-links.test.ts bb-plugin-work-hub/launch-context.test.ts bb-plugin-work-hub/context-hook.test.ts bb-plugin-work-hub/handoff-hook.test.ts
+node --experimental-strip-types --test bb-plugin-work-hub/reference-links.test.ts bb-plugin-work-hub/launch-context.test.ts bb-plugin-work-hub/context-hook.test.ts bb-plugin-work-hub/handoff-hook.test.ts bb-plugin-work-hub/work-name.test.ts
+./bb-plugin-work-hub/node_modules/.bin/tsx --test bb-plugin-work-hub/rename-rpc.test.ts
 ./bb-plugin-work-hub/node_modules/.bin/tsc --noEmit -p bb-plugin-work-hub/tsconfig.json
 bb plugin build ./bb-plugin-work-hub
 ```
