@@ -17,7 +17,8 @@ When a user starts a conversation or adds a reference, the dispatch hook:
 2. Matches canonical Slack, GitHub, Linear and BB links to captured work. Workspace/repository identities are part of the match; it does not match every message in a Slack channel as one task.
 3. Uses one unambiguous active match, or the parent thread's work. Otherwise it creates a work item immediately. Ambiguous candidates are included in the agent context for review. Explicit repeat requests with resolved prior obligations get a new item and retain prior work references.
 4. Loads referenced sources using existing configured, read-only connections. Disabled sources and wrong Slack/Linear workspaces fail closed. Exact links are supported; bare ticket/PR numbers and semantic title matching do not automatically associate work.
-5. Supplies a bounded context packet to new provider sessions, and exposes `work_hub_context` to refresh it during the conversation. The sidebar uses the same saved associations and reports pending/failed source reads.
+5. Reads direct GitHub PR, GitHub issue and Linear issue links from the captured messages of an explicitly linked Slack thread, including replies. Work detail lists each resolved source once. Further links in the issue or PR do not trigger additional reads. Reopening a previously captured Slack link also checks its saved messages.
+6. Supplies a bounded context packet to new provider sessions, and exposes `work_hub_context` to refresh it during the conversation. The sidebar uses the same saved associations and reports pending/failed source reads.
 
 The first dispatch may wait up to about twelve seconds for source context. A slow or unavailable connector does not indefinitely block work; pending reads retry in the background. Hooks cannot rewrite a user's prompt, and BB does not replace instructions in a running provider session. Existing sessions need a provider restart to discover newly registered tools; the sidebar and `contextPacket` RPC still work immediately. Changes during an established session are retrieved with `work_hub_context`, not silently injected into the model's transcript.
 
@@ -54,7 +55,7 @@ Automatic resolution defaults off. If explicitly enabled, only current confirmed
 
 ## Portability and verification
 
-Ledger export schema 3 includes reference identities, context jobs, review state and assessment history. Schemas 1 and 2 still import; interrupted jobs recover conservatively. Credentials remain in the configured storage backend, outside the ledger export.
+Ledger export schema 4 records the originating work for pending links discovered in Slack. Schemas 1 through 3 still import; interrupted jobs recover conservatively. Credentials remain in the configured storage backend, outside the ledger export.
 
 Synthetic tests cover repeat requests, exact identity matching, manual association preservation, full inventories, source failures, stale evidence, version conflicts, retry leases, checkpoint preservation and dispatch wait bounds. BB's dispatch hook remains an experimental SDK API. Source coverage and model interpretation remain imperfect: read the evidence when deciding whether a commitment is fulfilled.
 

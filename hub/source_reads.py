@@ -5,6 +5,7 @@ import re
 import subprocess
 import time
 from references import reference
+from source_preview import slack_messages
 from settings import selected_sources, slack as slack_settings
 
 
@@ -15,26 +16,33 @@ def command(args, project_id=None):
     return result.stdout
 
 
+def check_source_scope(ref):
+    if ref['source']!='bb' and ref['source'] not in selected_sources():
+        raise ValueError('Source is not enabled')
+    if ref['source']=='slack':
+        from urllib.parse import urlparse
+        if urlparse(ref['url']).hostname!=urlparse(slack_settings()['workspace_url']).hostname:
+            raise ValueError('Slack workspace is not configured')
+
+
 def read_reference(ref, project_id=None):
     source=ref['source']
-    if source!='bb' and source not in selected_sources():raise ValueError('Source is not enabled')
+    check_source_scope(ref)
     if source=='slack':
         from slack import call
-        from urllib.parse import urlparse
-        if urlparse(ref['url']).hostname!=urlparse(slack_settings()['workspace_url']).hostname:raise ValueError('Slack workspace is not configured')
         response=call('slack_read_thread',{'channel_id':ref['channel'],'message_ts':ref['stamp'],'limit':100,'response_format':'detailed'})
         if response.get('isError'):raise RuntimeError('Slack source read failed')
         content=[b['text'] for b in response.get('content',[]) if b.get('type')=='text']
         body='\n'.join(content)
-        try:
-            parsed=json.loads(content[0])
-            message_text=parsed.get('messages','')
-        except (ValueError,IndexError,AttributeError):message_text=body
+        message_text=slack_messages(content[0]) if content else ''
         parent=re.search(r'^Message TS: ([0-9]+\.[0-9]{6})',message_text,re.M)
         if parent:
             ref={**ref,'stamp':parent[1],'url':ref['url'].split('/p')[0]+'/p'+parent[1].replace('.','')}
         if not body:raise ValueError('Slack returned no evidence')
-        # Preserve the whole returned bounded page, including pagination warnings.
+        # Keep the original receipt when it fits. For a long page take a
+        # bounded excerpt of the decoded messages instead of cutting JSON.
+        if len(body)>58000 and message_text:
+            body=message_text[:57950]+'\n[Slack thread excerpt truncated]'
         return {'external_id':ref['channel']+':'+ref['stamp'],'title':'Slack conversation','text':body,'url':ref['url']}
     if source=='github':
         if ref['kind']=='pull':
@@ -61,7 +69,9 @@ def refresh_reference(store, url, project_id=None):
     ref=reference(url)
     if ref is None:raise ValueError('Unsupported source reference')
     cache=store._record('source_read:'+ref['key'],{})
-    if cache.get('checked_at',0)>time.time()-120:
+    same_scope=ref['source']!='linear' or ('project_id' in cache and cache['project_id']==project_id)
+    if same_scope and cache.get('checked_at',0)>time.time()-120:
+        check_source_scope(ref)
         if cache.get('error'):raise RuntimeError('Referenced source temporarily unavailable')
         if store.db.execute('SELECT 1 FROM conversations WHERE id=?',(cache.get('conversation_id'),)).fetchone():return cache['conversation_id']
     try:
@@ -77,10 +87,10 @@ def refresh_reference(store, url, project_id=None):
         if existing and ref['source'] in ('slack','bb'):result['title']=existing['title']
         result['occurred_at']=time.time()
         store.ingest(ref['source'],[result],scope='Targeted reference read; regular collection checkpoint unchanged',complete=False,targeted=True)
-        with store.db:store._put_record('source_read:'+ref['key'],{'checked_at':time.time(),'conversation_id':cid})
+        with store.db:store._put_record('source_read:'+ref['key'],{'checked_at':time.time(),'conversation_id':cid,'project_id':project_id})
         return cid
     except (ValueError,RuntimeError,OSError,subprocess.TimeoutExpired) as error:
-        with store.db:store._put_record('source_read:'+ref['key'],{'checked_at':time.time(),'error':type(error).__name__})
+        with store.db:store._put_record('source_read:'+ref['key'],{'checked_at':time.time(),'error':type(error).__name__,'project_id':project_id})
         raise
 
 
@@ -89,7 +99,15 @@ def hydrate_context(store, thread_id=None, limit=1):
         claim=store.claim_context(thread_id)
         if not claim:break
         try:
-            cid=refresh_reference(store,claim['url'],store._record('context_project:'+claim['thread_id'],None))
+            # A collected PR already has a stable GitHub identity. Reuse it
+            # for a Slack association; explicit refreshes still read upstream.
+            captured=None
+            if claim['slack_work_id'] and claim['reference_key'].startswith('github:'):
+                check_source_scope(reference(claim['url']))
+                captured=store.db.execute("""SELECT c.id FROM conversations c JOIN source_references r
+                    ON c.id=r.conversation_id AND c.url=r.url WHERE c.source='github' AND r.key=?""",
+                    (claim['reference_key'],)).fetchone()
+            cid=captured['id'] if captured else refresh_reference(store,claim['url'],store._record('context_project:'+claim['thread_id'],None))
             store.finish_context(claim,cid)
         except Exception as error:
             # Connector failures can wrap private payloads: retain only a safe category.

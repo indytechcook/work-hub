@@ -69,9 +69,15 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, Labe
         with self.db:
             for source in SOURCES:
                 self.db.execute('INSERT OR IGNORE INTO sources(name) VALUES (?)', (source,))
+            if 'slack_work_id' not in {r['name'] for r in self.db.execute('PRAGMA table_info(context_requests)')}:
+                self.db.execute('ALTER TABLE context_requests ADD COLUMN slack_work_id TEXT')
             if not self._record('reference_index_v1',False) and self.db.execute('SELECT 1 FROM conversations LIMIT 1').fetchone():
                 for row in self.db.execute('SELECT id FROM conversations').fetchall():self.index_references(row[0])
                 self._put_record('reference_index_v1',True)
+            if not self._record('slack_reference_index_v2',False) and self.db.execute("SELECT 1 FROM conversations WHERE source='slack' LIMIT 1").fetchone():
+                for row in self.db.execute("SELECT id FROM conversations WHERE source='slack'").fetchall():
+                    self.index_references(row['id'])
+                self._put_record('slack_reference_index_v2',True)
 
     def close(self):
         self.db.close()
@@ -118,6 +124,7 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, Labe
                       (cid,source,external,title,url,text(item.get('model',''),200),parent,wid,eid,now))
                     self.db.execute('UPDATE work SET updated_at=? WHERE id=?', (now,wid))
                     self.index_references(cid)
+                    if source=='slack':self.queue_slack_links(conversation_id=cid)
                     self.change('received',cid,title)
                     if source=='bb':self.capture_handoff(cid,body,occurred)
                     if self.is_tracking(source,external):
@@ -470,7 +477,7 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, Labe
         return {'ok':True}
 
     def import_snapshot(self, payload):
-        if payload.get('schema_version') not in (1,2,3):raise ValueError('Unsupported export version')
+        if payload.get('schema_version') not in (1,2,3,4):raise ValueError('Unsupported export version')
         names=['sources','conversations','work','events','obligations','changes','jobs','meta','decisions','manual_links','return_points','job_leases','reminders','reminder_items','conversation_work_links']
         extra=['source_references','context_requests','completion_reviews','completion_audit']
         tables=payload.get('tables')
@@ -495,6 +502,8 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, Labe
             for name in names:
                 columns=[r[1] for r in self.db.execute('PRAGMA table_info('+name+')')]
                 for row in tables[name]:
+                    if name=='context_requests' and payload['schema_version']<=3 and isinstance(row,dict) and 'slack_work_id' not in row:
+                        row={**row,'slack_work_id':None}
                     if not isinstance(row,dict) or set(row)!=set(columns):raise ValueError('Export row does not match schema')
                     self.db.execute('INSERT INTO '+name+' ('+','.join(columns)+') VALUES ('+','.join('?' for _ in columns)+')',[row[c] for c in columns])
             # Carry unresolved work, but require explicit ownership reconciliation before dispatch.
@@ -509,4 +518,4 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, Labe
         return {'ok':True,'held_jobs':self.db.execute("SELECT count(*) FROM jobs WHERE state='held'").fetchone()[0]}
 
     def export(self):
-        return {'schema_version':3,'exported_at':time.time(), 'tables':{name:[dict(r) for r in self.db.execute('SELECT * FROM '+name)] for name in ['sources','conversations','work','events','obligations','changes','jobs','meta','decisions','manual_links','return_points','job_leases','reminders','reminder_items','conversation_work_links','source_references','context_requests','completion_reviews','completion_audit']}}
+        return {'schema_version':4,'exported_at':time.time(), 'tables':{name:[dict(r) for r in self.db.execute('SELECT * FROM '+name)] for name in ['sources','conversations','work','events','obligations','changes','jobs','meta','decisions','manual_links','return_points','job_leases','reminders','reminder_items','conversation_work_links','source_references','context_requests','completion_reviews','completion_audit']}}

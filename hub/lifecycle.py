@@ -6,14 +6,26 @@ import re
 import time
 import uuid
 from references import references, reference
+from source_preview import slack_messages
 
 SCHEMA='''
 CREATE TABLE IF NOT EXISTS source_references(key TEXT NOT NULL,conversation_id TEXT NOT NULL,url TEXT NOT NULL,source TEXT NOT NULL,PRIMARY KEY(key,conversation_id));
 CREATE INDEX IF NOT EXISTS source_references_conversation ON source_references(conversation_id);
-CREATE TABLE IF NOT EXISTS context_requests(thread_id TEXT NOT NULL,reference_key TEXT NOT NULL,url TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',error TEXT,updated_at REAL NOT NULL,lease_until REAL,lease_token TEXT,PRIMARY KEY(thread_id,reference_key));
+CREATE TABLE IF NOT EXISTS context_requests(thread_id TEXT NOT NULL,reference_key TEXT NOT NULL,url TEXT NOT NULL,state TEXT NOT NULL DEFAULT 'pending',error TEXT,updated_at REAL NOT NULL,lease_until REAL,lease_token TEXT,slack_work_id TEXT,PRIMARY KEY(thread_id,reference_key));
 CREATE TABLE IF NOT EXISTS completion_reviews(obligation_id TEXT PRIMARY KEY,state TEXT NOT NULL DEFAULT 'queued',requested_at REAL NOT NULL,checked_at REAL,lease_until REAL,lease_token TEXT,not_before REAL NOT NULL DEFAULT 0,obligation_version INTEGER,fingerprint TEXT,verdict TEXT,reason TEXT,evidence TEXT NOT NULL DEFAULT '[]',error TEXT,applied_version INTEGER);
 CREATE TABLE IF NOT EXISTS completion_audit(id INTEGER PRIMARY KEY,obligation_id TEXT NOT NULL,verdict TEXT NOT NULL,reason TEXT NOT NULL,evidence TEXT NOT NULL,checked_at REAL NOT NULL,obligation_version INTEGER NOT NULL);
 '''
+SLACK_LINKS="""
+SELECT q.thread_id,b.work_id,r.key,r.url
+FROM context_requests q
+JOIN conversations b ON b.source='bb' AND b.external_id=q.thread_id
+JOIN work_memberships m ON m.work_id=b.work_id
+JOIN conversations s ON s.id=m.conversation_id AND s.source='slack'
+LEFT JOIN meta cache ON cache.key='source_read:' || q.reference_key
+JOIN source_references r ON r.conversation_id=s.id AND r.source IN ('linear','github')
+WHERE q.state='ready' AND q.reference_key LIKE 'slack:%'
+  AND (q.url=s.url OR json_extract(cache.value,'$.conversation_id')=s.id)
+"""
 VERDICTS={'confirmed_complete','partly_complete','still_open','upcoming','superseded','unconfirmed'}
 
 
@@ -22,13 +34,38 @@ def digest(*parts):return hashlib.sha256(json.dumps(parts,sort_keys=True).encode
 
 class LifecycleMixin:
     def index_references(self, conversation_id):
-        row=self.db.execute('SELECT c.url,e.text FROM conversations c LEFT JOIN events e ON e.id=c.latest_event WHERE c.id=?',(conversation_id,)).fetchone()
+        row=self.db.execute('SELECT c.source,c.url,e.text FROM conversations c LEFT JOIN events e ON e.id=c.latest_event WHERE c.id=?',(conversation_id,)).fetchone()
         if row is None:return
-        refs=references((row['url'] or '')+'\n'+(row['text'] or ''))
+        body=row['text'] or ''
+        if row['source']=='slack':
+            # A Slack link's label may itself look like a different destination.
+            body=re.sub(r'<(https?://[^|<>\s]+)\|[^<>]*>',r'<\1>',slack_messages(body))
+        refs=references((row['url'] or '')+'\n'+body)
         self.db.execute('DELETE FROM source_references WHERE conversation_id=?',(conversation_id,))
         for ref in refs:self.db.execute('INSERT OR IGNORE INTO source_references VALUES (?,?,?,?)',(ref['key'],conversation_id,ref['url'],ref['source']))
         if self._record('completion_auto_enabled',False):
             self.db.execute("UPDATE completion_reviews SET state='queued',requested_at=? WHERE state='done' AND obligation_id IN (SELECT o.id FROM obligations o WHERE o.state IN ('open','needs_review') AND (o.conversation_id=? OR o.conversation_id IN (SELECT r.conversation_id FROM source_references r JOIN source_references changed ON r.key=changed.key WHERE changed.conversation_id=?)))",(time.time(),conversation_id,conversation_id))
+
+    def queue_slack_links(self, *, conversation_id=None, thread_id=None, request_key=None):
+        # Only expand Slack reads explicitly requested by this thread and still
+        # attached to its work. The read cache also maps reply URLs to parents.
+        self.db.execute("""
+            INSERT OR IGNORE INTO context_requests(thread_id,slack_work_id,reference_key,url,updated_at)
+            SELECT related.*, :now FROM (""" + SLACK_LINKS + """
+                AND (:cid IS NULL OR s.id=:cid) AND (:tid IS NULL OR q.thread_id=:tid)
+                AND (:key IS NULL OR q.reference_key=:key)
+            ) related
+        """,dict(now=time.time(),cid=conversation_id,tid=thread_id,key=request_key))
+
+    def _discard_stale_slack_request(self, request):
+        if request['slack_work_id'] is None:return False
+        match=self.db.execute(SLACK_LINKS + """
+            AND b.work_id=? AND q.thread_id=? AND r.key=? LIMIT 1
+        """,(request['slack_work_id'],request['thread_id'],request['reference_key'])).fetchone()
+        if match:return False
+        self.db.execute('DELETE FROM context_requests WHERE thread_id=? AND reference_key=?',
+                        (request['thread_id'],request['reference_key']))
+        return True
 
     def ensure_context(self, thread_id, title, prompt, model='', parent_id=None, project_id=None, record_prompt=True):
         if type(record_prompt)!=bool:raise ValueError('Invalid prompt capture setting')
@@ -65,7 +102,10 @@ class LifecycleMixin:
                 self.change('context_linked',wid,'Conversation linked; source context is being checked')
             for ref in refs:
                 if ref['key']=='bb:'+thread_id:continue
-                self.db.execute("INSERT OR IGNORE INTO context_requests(thread_id,reference_key,url,updated_at) VALUES (?,?,?,?)",(thread_id,ref['key'],ref['url'],now))
+                self.db.execute("""INSERT INTO context_requests(thread_id,reference_key,url,updated_at) VALUES (?,?,?,?)
+                    ON CONFLICT(thread_id,reference_key) DO UPDATE SET slack_work_id=NULL""",(thread_id,ref['key'],ref['url'],now))
+                if ref['source']=='slack':
+                    self.queue_slack_links(thread_id=thread_id,request_key=ref['key'])
             self._put_record('context_candidates:'+thread_id,sorted(candidates-{wid}))
             if project_id:self._put_record('context_project:'+thread_id,project_id)
         return self.context_packet(thread_id)
@@ -84,8 +124,10 @@ class LifecycleMixin:
         now=time.time()
         with self.db:
             self.db.execute('BEGIN IMMEDIATE')
-            row=self.db.execute("SELECT * FROM context_requests WHERE (state='pending' OR (state='running' AND lease_until<?) OR (state='error' AND updated_at<?)) AND (? IS NULL OR thread_id=?) ORDER BY updated_at LIMIT 1",(now,now-300,thread_id,thread_id)).fetchone()
-            if not row:return None
+            while True:
+                row=self.db.execute("SELECT * FROM context_requests WHERE (state='pending' OR (state='running' AND lease_until<?) OR (state='error' AND updated_at<?)) AND (? IS NULL OR thread_id=?) ORDER BY updated_at LIMIT 1",(now,now-300,thread_id,thread_id)).fetchone()
+                if not row:return None
+                if not self._discard_stale_slack_request(row):break
             token=str(uuid.uuid4())
             self.db.execute("UPDATE context_requests SET state='running',lease_token=?,lease_until=? WHERE thread_id=? AND reference_key=?",(token,now+180,row['thread_id'],row['reference_key']))
             return {**dict(row),'lease_token':token}
@@ -94,18 +136,29 @@ class LifecycleMixin:
         with self.db:
             self.db.execute('BEGIN IMMEDIATE')
             row=self.db.execute('SELECT * FROM context_requests WHERE thread_id=? AND reference_key=? AND lease_token=?',(claim['thread_id'],claim['reference_key'],claim['lease_token'])).fetchone()
-            if not row:return False
+            if not row or self._discard_stale_slack_request(row):return False
             current=self.db.execute("SELECT work_id FROM conversations WHERE source='bb' AND external_id=?",(claim['thread_id'],)).fetchone()
             if current and source_conversation_id:
                 # Attach source evidence; never steal its existing primary work or undo manual choices.
                 own=self.db.execute('SELECT work_id FROM conversations WHERE id=?',(source_conversation_id,)).fetchone()
-                manual=self.db.execute('SELECT 1 FROM manual_links WHERE conversation_id=?',(source_conversation_id,)).fetchone()
-                if own and own['work_id']==source_conversation_id and own['work_id']!=current['work_id'] and not manual and not self.db.execute('SELECT 1 FROM obligations WHERE conversation_id=?',(source_conversation_id,)).fetchone() and not self._record('intent:'+own['work_id'],None) and not self._record('work_name:'+own['work_id'],None):
-                    self.db.execute('UPDATE conversations SET work_id=? WHERE id=?',(current['work_id'],source_conversation_id))
-                else:
-                    self.db.execute('INSERT OR IGNORE INTO conversation_work_links VALUES (?,?)',(source_conversation_id,current['work_id']))
+                destination=current['work_id']
+                if own and own['work_id']!=destination:
+                    # Only fold an untouched, standalone source card into the work.
+                    standalone=self.db.execute("""
+                        SELECT 1 FROM work w WHERE w.id=? AND w.status='active' AND w.focus=0
+                        AND NOT EXISTS(SELECT 1 FROM manual_links WHERE conversation_id=w.id)
+                        AND NOT EXISTS(SELECT 1 FROM obligations WHERE conversation_id=w.id)
+                        AND NOT EXISTS(SELECT 1 FROM work_memberships WHERE work_id=w.id AND conversation_id<>w.id)
+                        AND NOT EXISTS(SELECT 1 FROM meta WHERE key IN ('intent:'||w.id,'work_name:'||w.id))
+                    """,(source_conversation_id,)).fetchone()
+                    if own['work_id']==source_conversation_id and standalone:
+                        self.db.execute('UPDATE conversations SET work_id=? WHERE id=?',(destination,source_conversation_id))
+                    else:
+                        self.db.execute('INSERT OR IGNORE INTO conversation_work_links VALUES (?,?)',(source_conversation_id,destination))
                 self.change('context_ready',current['work_id'],'Referenced source context loaded')
             self.db.execute('UPDATE context_requests SET state=?,error=?,updated_at=?,lease_token=NULL,lease_until=NULL WHERE thread_id=? AND reference_key=?',('error' if error else 'ready',error,time.time(),claim['thread_id'],claim['reference_key']))
+            if source_conversation_id and not error and claim['reference_key'].startswith('slack:'):
+                self.queue_slack_links(conversation_id=source_conversation_id,thread_id=claim['thread_id'])
         return True
 
     def queue_completion(self, scope='unseen', ids=None):

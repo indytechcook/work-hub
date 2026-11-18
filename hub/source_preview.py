@@ -4,13 +4,19 @@ import json
 import re
 
 
-def slack_preview(raw):
-    if not raw:return None
+def slack_messages(raw):
+    """Return message text from a scheduled receipt or a targeted Slack envelope."""
+    if not raw:return ''
     try:
         payload=json.loads(raw)
-        raw=payload.get('messages','') if isinstance(payload,dict) else ''
-    except ValueError:pass
-    if not isinstance(raw,str):return None
+    except ValueError:
+        return raw
+    messages=payload.get('messages') if isinstance(payload,dict) else None
+    return messages if isinstance(messages,str) else ''
+
+
+def slack_preview(raw):
+    raw=slack_messages(raw)
     # Both scheduled collection and targeted reads use Slack's detailed message format.
     match=re.search(r'^From: (?P<author>[^\n]+)\nTime: [^\n]+\nMessage TS: (?P<ts>\d{10}\.\d{6})\n',raw,re.M)
     if not match:return None

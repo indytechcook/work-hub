@@ -8,7 +8,7 @@ from test_support import isolate_storage
 from store import Store,digest
 from references import reference,references
 from completion import once
-from source_reads import refresh_reference
+from source_reads import hydrate_context, refresh_reference
 
 SLACK='https://example.slack.com/archives/C123/p1794900000000000'
 PR='https://github.com/example/project/pull/12'
@@ -48,6 +48,89 @@ class LifecycleTests(unittest.TestCase):
         context=self.s.thread_context('thr_new')
         self.assertEqual({c['source'] for c in context['work']['conversations']},{'slack','bb'})
         self.assertEqual(self.s.db.execute('SELECT work_id FROM conversations WHERE id=?',(cid,)).fetchone()[0],p['work']['id'])
+    def test_slack_permalink_attaches_direct_sources_once_in_either_arrival_order(self):
+        issue='https://linear.app/example/issue/ENG-12'
+        other='https://github.com/example/project/pull/99'
+        messages=f'Parent <{PR}|{other}>.\n--- Reply 1 ---\n<{issue}|ticket> and {PR}'
+        envelope=json.dumps({'messages':messages,'pagination_info':other}).replace('/',r'\/')
+        thread='thr_request'
+        work=self.s.ensure_context(thread,'Request',SLACK)['work']['id']
+        slack_id='C123:1794900000.000000'
+        def read(ref,project):
+            if ref['source']=='slack':
+                return dict(external_id=slack_id,title='Thread',text=envelope,url=SLACK)
+            return dict(external_id=ref['id'] if ref['source']=='linear' else 'pr',
+                        title='Evidence',text=other,url=ref['url'])
+        with patch('source_reads.selected_sources',return_value=['github','slack','linear']),patch('source_reads.read_reference',side_effect=read) as reader:
+            hydrate_context(self.s,thread,1)
+            self.source('github',PR,'From scheduled collection')
+            hydrate_context(self.s,thread,3)
+            self.s.ingest('linear',[dict(external_id='ENG-12',title='Updated issue',text='Collected later',url=issue+'/title')])
+            self.s.ensure_context(thread,'Request',SLACK)
+            hydrate_context(self.s,thread,3)
+            self.assertEqual(reader.call_count,2)
+        sources=self.s.work_detail(work)['work']['conversations']
+        self.assertCountEqual([c['source'] for c in sources],['bb','slack','github','linear'])
+        self.assertEqual({r['url'] for r in self.s.context_packet(thread)['requests']},{SLACK,PR,issue})
+        self.assertEqual({r[0] for r in self.s.db.execute('SELECT DISTINCT work_id FROM work_memberships')},{work})
+        self.assertEqual(self.s.ensure_context('thr_repeat','Request',SLACK)['work']['id'],work)
+        self.assertEqual(self.s.db.execute('SELECT text FROM events WHERE conversation_id=?',(digest('slack',slack_id),)).fetchone()[0],envelope)
+
+    def test_new_slack_reply_only_expands_for_a_thread_still_linked_to_source(self):
+        parent=self.s.ensure_context('thr_request','Request',SLACK)['work']['id']
+        claim=self.s.claim_context('thr_request')
+        slack=self.source(body='First message')
+        self.s.finish_context(claim,slack)
+        self.source(body='Reply: '+PR)
+        pr_claim=self.s.claim_context('thr_request')
+        self.assertEqual(pr_claim['url'],PR)
+        other=self.s.ensure_context('thr_other','Unrelated','Separate work')['work']['id']
+        self.s.associate(slack,other,'add')
+        self.s.associate(slack,parent,'remove')
+        self.source(body='Next reply: https://linear.app/example/issue/ENG-2')
+        pr=self.source('github',PR,'Fetched while user changed work')
+        self.assertFalse(self.s.finish_context(pr_claim,pr))
+        self.assertEqual(self.s._work_ids(pr),[pr])
+        self.assertEqual({r['url'] for r in self.s.context_packet('thr_request')['requests']},{SLACK})
+        self.assertEqual(self.s.context_packet('thr_other')['requests'],[])
+
+    def test_reopen_existing_slack_work_discovers_links_after_index_upgrade(self):
+        thread='thr_legacy'
+        self.s.ensure_context(thread,'Request',SLACK)
+        claim=self.s.claim_context(thread)
+        body=json.dumps({'messages':PR}).replace('/',r'\/')
+        cid=self.source(body=body)
+        self.s.finish_context(claim,cid)
+        # Recreate the old index and the original, already-completed Slack read.
+        with self.s.db:
+            self.s.db.execute("DELETE FROM source_references WHERE conversation_id=? AND source='github'",(cid,))
+            self.s.db.execute('DELETE FROM context_requests WHERE url=?',(PR,))
+            self.s.db.execute("DELETE FROM meta WHERE key='slack_reference_index_v2'")
+            self.s.db.execute("ALTER TABLE context_requests DROP COLUMN slack_work_id")
+        legacy=self.s.export()
+        legacy['schema_version']=3
+        imported=Store(self.s.path.with_name('imported.db'));self.addCleanup(imported.close)
+        imported.import_snapshot(legacy)
+        imported.ensure_context(thread,'Request',SLACK,record_prompt=False)
+        self.assertEqual(imported.claim_context(thread)['url'],PR)
+        reopened=Store(self.s.path);self.addCleanup(reopened.close)
+        reopened.ensure_context(thread,'Request',SLACK,record_prompt=False)
+        self.assertEqual(reopened.claim_context(thread)['url'],PR)
+
+    def test_discovered_source_scope_and_manual_choices(self):
+        work=self.s.ensure_context('thr_request','Request',SLACK)['work']['id']
+        slack_claim=self.s.claim_context()
+        self.s.finish_context(slack_claim,self.source())
+        pr=self.source('github',PR,'Saved work')
+        self.s.mutate('work',pr,'focus')
+        with patch('source_reads.selected_sources',return_value=[]),patch('source_reads.command') as command:
+            hydrate_context(self.s,'thr_request')
+            command.assert_not_called()
+        self.assertEqual(self.s._work_ids(pr),[pr])
+        with self.s.db:self.s.db.execute("UPDATE context_requests SET updated_at=0 WHERE state='error'")
+        self.s.finish_context(self.s.claim_context('thr_request'),pr)
+        self.assertCountEqual(self.s._work_ids(pr),[pr,work])
+
     def test_manual_association_survives_new_references(self):
         first=self.s.ensure_context('thr_new','New request','Start here')['work']['id'];other=self.source()
         self.s.associate(digest('bb','thr_new'),other,'add')

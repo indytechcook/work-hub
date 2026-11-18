@@ -129,7 +129,7 @@ The paginated reconciliation view is an application query, **not a SQL view**. I
 | `reminders`, `reminder_items` | Delivery batches and obligation/due-date/day deduplication. Reminder delivery state is separate from fulfillment. |
 | `meta` | Portable intent, presentation, context and operational records described above. |
 
-Ledger export schema 3 includes all 19 application tables, including `meta` and completion history. `work_memberships` is recreated from schema. Imports support earlier export versions, require an empty destination and reset interrupted work conservatively. Credentials are not part of the export. Exported source excerpts and evidence are private; use the [setup guide's backup instructions](../SETUP.md#9-backup-stop-and-troubleshoot).
+Ledger export schema 4 includes all 19 application tables, including `meta` and completion history. `work_memberships` is recreated from schema. Imports support earlier export versions, require an empty destination and reset interrupted work conservatively. Credentials are not part of the export. Exported source excerpts and evidence are private; use the [setup guide's backup instructions](../SETUP.md#9-backup-stop-and-troubleshoot).
 
 ## Synthetic example
 
