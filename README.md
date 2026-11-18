@@ -15,6 +15,7 @@ Start with the 77-second overview, then explore [nine short workflow walkthrough
 ## What it does
 
 - Connects BB conversations across models without moving or replacing their transcripts.
+- Focusing a work item pins its linked, unarchived BB threads. You can manage those pins in BB after removing focus.
 - Tracks what you owe and what others owe you, with source evidence and shared status.
 - Keeps user-chosen next actions separate from model suggestions.
 - Reads selected Google, Slack, Linear, GitHub, Granola and Better Stack sources.

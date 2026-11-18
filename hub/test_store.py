@@ -49,6 +49,16 @@ class LedgerTests(unittest.TestCase):
         self.ingest(body='Use local polling.');c=self.s.claim_analysis();self.s.apply_analysis(c['id'],c['lease_token'],dict(summary='local',next_action='build',decisions=[dict(text='Local polling',quote='Use local polling.')]))
         self.s.ingest('bb',[dict(external_id='child',parent_id='a',title='Side',text='Working on UI')]);c=self.s.claim_analysis();self.analysis(c)
         w=self.s.snapshot()['work'][0];self.assertEqual(len(w['decisions']),1);self.assertEqual(len(w['conversations']),2)
+    def test_focus_returns_only_bb_threads_from_all_memberships(self):
+        self.s.ingest('bb',[dict(external_id='thr_root',title='Primary'),dict(external_id='thr_shared',title='Shared'),dict(external_id='thr_other',title='Other')])
+        self.s.ingest('slack',[dict(external_id='source',title='Source')])
+        work=digest('bb','thr_root')
+        self.s.associate(digest('bb','thr_shared'),work,'add')
+        self.s.associate(digest('slack','source'),work,'add')
+        self.assertEqual(self.s.mutate('work',work,'focus')['thread_ids'],['thr_root','thr_shared'])
+        self.assertNotIn('thread_ids',self.s.mutate('work',work,'unfocus'))
+        self.assertEqual(self.s.mutate('work',digest('slack','source'),'focus')['thread_ids'],[])
+
     def test_remove_focus_preserves_work_followups_and_other_focus(self):
         self.ingest();c=self.s.claim_analysis()
         self.s.apply_analysis(c['id'],c['lease_token'],dict(summary='Draft in progress',next_action='Send draft',obligations=[self.obligation()]))

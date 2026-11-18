@@ -240,11 +240,15 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, Labe
         return {'applied':True}
 
     def mutate(self, kind, id, action, version=None, value=None):
+        result={'ok':True}
         with self.db:
             if kind=='work':
                 if not self.db.execute('SELECT 1 FROM work WHERE id=?',(id,)).fetchone():raise ValueError('Unknown work')
                 if action=='focus':
                     self.db.execute('UPDATE work SET focus=1 WHERE id=?',(id,))
+                    result['thread_ids']=[row[0] for row in self.db.execute(
+                        """SELECT c.external_id FROM conversations c JOIN work_memberships m ON m.conversation_id=c.id
+                           WHERE m.work_id=? AND c.source='bb' ORDER BY c.external_id""", (id,))]
                 elif action=='unfocus':
                     self.db.execute('UPDATE work SET focus=0 WHERE id=?',(id,))
                 elif action in ['active','waiting','done']:
@@ -263,7 +267,7 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, Labe
                 self.db.execute('INSERT INTO manual_links VALUES (?,?) ON CONFLICT(conversation_id) DO UPDATE SET work_id=excluded.work_id',(id,value))
             else:raise ValueError('Invalid action')
             self.change('user_action',id,action)
-        return {'ok':True}
+        return result
 
     def register_agent_thread(self, work_id, thread_id, title, model, occurred_at):
         text(work_id,100);text(thread_id,100);text(title,1000);text(model,200)

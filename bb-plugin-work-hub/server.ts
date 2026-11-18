@@ -5,6 +5,7 @@ import { defineRpcContract, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import {registerHandoffs} from './handoff-hook';
 import {registerContextHook} from './context-hook';
+import {pinFocusedThreads} from './focus-pins';
 import { launchContext } from './launch-context';
 
 const intent=z.object({next_action:z.string(),purpose:z.string(),project:z.string(),thread_id:z.string().nullable(),version:z.number(),updated_at:z.number().nullable()});
@@ -57,7 +58,7 @@ export const rpcContract = defineRpcContract({
  prepareLaunch:{input:z.object({workId:z.string().max(100),obligationId:z.string().max(100).optional()}),output:z.object({title:z.string(),prompt:z.string(),parentThreadId:z.string().nullable(),projectId:z.string().nullable()})},
  trackThread:{input:z.object({threadId:z.string().max(100)}),output:z.object({ok:z.boolean()})},
  sync:{input:z.null(),output:z.object({ok:z.boolean()})},
- mutate:{input:mutation,output:z.object({ok:z.boolean()})},
+ mutate:{input:mutation,output:z.object({ok:z.boolean(),notice:z.string().optional()})},
  acknowledgeChanges:{input:z.object({seqs:z.array(z.number().int().positive()).max(100)}),output:z.object({ok:z.boolean()})},
  acknowledge:{input:z.object({seq:z.number().int().nonnegative()}),output:z.object({ok:z.boolean()})},
 });
@@ -177,7 +178,15 @@ export default async function plugin(bb:BbPluginApi) {
   acknowledgeAttention:async args=>{const result=z.object({ok:z.boolean()}).parse(await core('acknowledge_attention',args));bb.realtime.publish('changed',{});return result;},
   snapshot:async()=>snapshotSchema.parse(await core('snapshot')),
   sync:async()=>{await collect();return {ok:true};},
-  mutate:async(args)=>{await core('mutate',args);bb.realtime.publish('changed',{});return {ok:true};},
+  mutate:async args=>{
+   const result=await core('mutate',args);
+   bb.realtime.publish('changed',{});
+   if(args.kind==='work' && args.action==='focus'){
+    const {thread_ids}=z.object({thread_ids:z.array(z.string())}).parse(result);
+    return {ok:true,notice:await pinFocusedThreads(thread_ids,bb.sdk.threads)};
+   }
+   return {ok:true};
+  },
   acknowledge:async(args)=>{await core('acknowledge',args);bb.realtime.publish('changed',{});return {ok:true};},
  });
  bb.cli.register({name:'work-hub',summary:'Read the portable work register and source coverage',commands:[{name:'status',summary:'Work and coverage as JSON',usage:'bb work-hub status'},{name:'sync',summary:'Reconcile recent BB conversations',usage:'bb work-hub sync'}],async run(argv){
