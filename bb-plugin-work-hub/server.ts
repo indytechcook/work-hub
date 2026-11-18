@@ -164,7 +164,10 @@ export default async function plugin(bb:BbPluginApi) {
  const morning=morningRunner(async (step,update,active)=>{
   if(step==='links')return verifyMorningLinks(core,config.collectThreads,update,active);
   if(step==='bb')await collect();
-  return core('morning_step',{step,bb_enabled:config.collectThreads},180000);
+  // Large Slack histories are deliberately paced by the shared collector.
+  // Let it reach its durable checkpoint while the thread shows interim evidence.
+  const timeout=['slack','linear','gmail'].includes(step)?45*60_000:180_000;
+  return core('morning_step',{step,bb_enabled:config.collectThreads},timeout);
  },async run=>{
   try{await core('save_morning_result',{run})}catch{bb.log.warn('Morning result available in memory; local persistence failed.')}
  });

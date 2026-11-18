@@ -2,7 +2,7 @@
 
 Choose **Start morning** in Work Hub. BB opens a visible planning conversation in the configured Work Hub project, using that project's provider, model and default environment. If no Work Hub project is configured, the dashboard uses the selected BB project. Each local date gets a thread. Clicking again opens it, including after a plugin reload. An archived planning thread can be replaced.
 
-The conversation reports progress while the local checks run, then proposes three actions with links. Choose, change or reorder them in the thread. It saves the plan after confirmation. **Edit today’s plan** opens the dashboard editor. Both use the same date, ordered work IDs, note and optimistic version check.
+The conversation reports progress while the local checks run. It can show provisional priorities from the saved evidence during a long scan, then proposes three actions with refreshed links. Choose, change or reorder them in the thread. It saves the plan after confirmation. **Edit today’s plan** opens the dashboard editor. Both use the same date, ordered work IDs, note and optimistic version check.
 
 ## Checks and order
 
