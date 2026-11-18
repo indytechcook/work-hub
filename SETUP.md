@@ -38,7 +38,9 @@ bb project create --name "Work Hub" --root "$WORK_HUB_ROOT" --json
 
 Reuse an existing project if this folder is already registered. Open a thread in that project, select a model you can access, and send a small test message. Inspect actual model IDs with `bb provider models claude-code` or `bb provider models codex`; do not reuse someone else's aliases.
 
-Authenticate your chosen background-analysis CLI. These are alternatives:
+For interactive Gemini threads, the BB Marketplace offers the Antigravity provider. Sign in with Google's `agy` CLI, install the plugin with `bb plugin install antigravity`, then check `bb antigravity status`. If the provider is missing from the picker and the bundled ACP plugin is disabled, run `bb plugin enable provider-acp` followed by `bb antigravity enable`. Choose Antigravity and a Gemini model when starting a thread. See the [BB listing](https://getbb.app/marketplace/antigravity) and [Google's CLI authentication guide](https://antigravity.google/docs/cli/install/).
+
+For Claude Code or Codex background analysis, authenticate the selected CLI. Gemini background analysis uses the API key in step 4.
 
 ```bash
 # Claude Code path:
@@ -78,7 +80,7 @@ BB conversation collection is controlled separately by the plugin. It is off ini
 
 ## 4. Select the background analyzer
 
-Choose exactly one template:
+Choose one provider. For Gemini, complete the credential setup and synthetic checks below before saving the selection on an installation with a running worker.
 
 ```bash
 # Claude-only installation:
@@ -86,15 +88,43 @@ Choose exactly one template:
 
 # Alternatively:
 # .venv/bin/python hub/configure.py set analyzer --input-file examples/analyzer.codex.json
+# .venv/bin/python hub/configure.py set analyzer --input-file examples/analyzer.gemini.json
 ```
 
-The analyzer record supports `provider` (`claude` or `codex`), optional `model`, and optional `executable` (the CLI's absolute path). Omit `model` to use the chosen CLI's default, or select one actually available to your account. A provider choice is required for background work; there is no silent fallback. This setting is independent of interactive BB model choices.
+The analyzer record supports `provider` (`claude`, `codex` or `gemini`) and an optional `model`. Claude and Codex also accept an optional `executable` path and use the CLI default model when omitted. A provider choice is required for background work; there is no silent fallback. This setting is independent of interactive BB model choices.
 
 **Claude:** normal Claude Code subscription/keychain authentication is retained. Personal customizations, general tools, hooks, skills and MCP connections are disabled for extraction. Organization-managed policy can still apply. The adapter requests structured output and rejects unexpected tool activity. It deliberately does not use `--bare`, which bypasses subscription login. See [the CLI reference](https://code.claude.com/docs/en/cli-reference) and [programmatic usage](https://code.claude.com/docs/en/headless).
 
 **Codex:** extraction uses `hub/.state/classifier-home/`, with authentication but no copied personal rules or tool configuration. Use an authentication method supported by your CLI for this isolated profile. With file-based authentication, a private symlink to your own authenticated `auth.json` can preserve refresh behavior. Do not copy the whole Codex home or anyone else's token. Keychain-only authentication needs separate qualification with this profile.
 
-Both adapters work in a fresh empty directory, without source tools. Selected evidence is sent to the chosen model service; local orchestration does not mean local inference. CLI API-key/custom authentication may need additional secure launchd environment configuration; the default setup is qualified with normal subscription authentication. Never print credentials while troubleshooting.
+The Claude and Codex adapters work in a fresh empty directory, without source tools. Selected evidence is sent to the chosen model service; local orchestration does not mean local inference. CLI API-key/custom authentication may need additional secure launchd environment configuration; the default setup is qualified with normal subscription authentication. Never print credentials while troubleshooting.
+
+### Gemini credentials and qualification
+
+Work Hub calls Google's Gemini Developer API directly for extraction and completion review. Each attempt makes one HTTPS `generateContent` request with the Work Hub response schema and no tools. The separate API credential is required even with an interactive Antigravity login. In an isolated startup check, `agy` 1.5.11 reported shell and MCP tools with strict permissions and an empty custom-agent tool list. The default API model is `gemini-3.5-flash-lite`. To use another structured-output model available to your project, add its bare model ID to a copy of the analyzer template. See [Google's model list](https://ai.google.dev/gemini-api/docs/models), [structured output](https://ai.google.dev/gemini-api/docs/structured-output) and [API reference](https://ai.google.dev/api/generate-content).
+
+Create a Gemini API key for the intended project in Google AI Studio. The following command prompts privately and stores the key in the `gemini_credentials` record through the configured storage backend (BB Env Catalog by default). Run it in a terminal. The scheduler can read that record using the same Work Hub storage profile. [Google's authentication instructions](https://ai.google.dev/gemini-api/docs/api-key)
+
+```bash
+.venv/bin/python -c 'import getpass,json; print(json.dumps({"api_key":getpass.getpass("Gemini API key: ")}))' | .venv/bin/python hub/configure.py set gemini_credentials --input-file -
+```
+
+Run both commands with the intended selection as a process-only override before switching an active worker. Substitute your model ID in the override if you customized the template. These are live, billable tests with synthetic evidence.
+
+```bash
+WORK_HUB_ANALYZER_JSON='{"provider":"gemini"}' .venv/bin/python hub/analyze.py --self-test
+WORK_HUB_ANALYZER_JSON='{"provider":"gemini"}' .venv/bin/python hub/qualify_analysis.py
+```
+
+After both pass, select Gemini for subsequent worker runs:
+
+```bash
+.venv/bin/python hub/configure.py set analyzer --input-file examples/analyzer.gemini.json
+```
+
+Google receives the classification instructions, configured name, email and timezone, source title, type, timestamp, selected text and related obligations. Completion reviews send the commitment, request time, related evidence (including IDs, URLs, timestamps and excerpts) and failed-refresh URLs. The API key travels in the `x-goog-api-key` header. Source credentials stay local. Review the [Gemini API data-use terms](https://ai.google.dev/gemini-api/terms) for your project's billing tier before enabling private evidence.
+
+### Daily allowance and provider checks
 
 Store the analysis allowance:
 
@@ -113,7 +143,7 @@ Run synthetic tests for your provider:
 .venv/bin/python hub/qualify_analysis.py --provider claude
 ```
 
-Use `--provider codex` for Codex. These test overrides do not change the worker's provider. Do not remove isolation flags or bypass organizational policy to obtain a passing test.
+Use `--provider codex` for Codex or `--provider gemini` for Gemini. These test overrides do not change the worker's provider. Do not remove isolation flags or bypass organizational policy to obtain a passing test.
 
 ## 5. Build/install the BB plugin
 
@@ -292,7 +322,7 @@ Restart with `launchctl bootstrap` and the same arguments. Disabling the plugin 
 | Ledger unavailable | Absolute `hubPath`, `pythonPath`, directory permissions. |
 | Missing BB conversations | Capture opt-in, seven-day scope, archive state, latest sync. |
 | Connected source but no data | Correct account/scope, collector status, bounds and partial results. |
-| Analysis pending | Explicit provider, CLI login, daily budget, retry time, private worker logs. |
+| Analysis pending | Explicit provider, CLI login or Gemini credential record, daily budget, retry time, private worker logs. |
 | Terminal works but job fails | Captured PATH, OS keychain access, isolated Codex authentication if selected. |
 | Expired connector | Renew the appropriate sign-in; retain checkpoints and never print tokens. |
 | Delayed during sleep | Local jobs require an awake logged-in computer. |

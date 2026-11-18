@@ -38,7 +38,7 @@ flowchart LR
   BB[BB conversations] --> Plugin[Work Hub plugin]
   Collectors --> Ledger[(Local SQLite ledger)]
   Plugin <--> Ledger
-  Ledger -->|Selected excerpts| Model[Claude or Codex]
+  Ledger -->|Selected excerpts| Model[Claude, Codex or Gemini]
   Model --> Checks[Schema, evidence, lease and version checks]
   Checks --> Ledger
   Plugin --> UI[Attention, focus, context and follow-ups]
@@ -46,7 +46,7 @@ flowchart LR
 
 Configuration and OAuth credentials default to BB’s encrypted Env Catalog, with environment-variable and JSON-file overrides. See [storage and migration](docs/storage.md). The ledger stays in local SQLite.
 
-Python owns the ledger and collectors; a TypeScript plugin supplies the BB interface. Background analysis can use Claude Code or Codex independently of interactive BB model choices. A Claude-only user does not need Codex.
+Python owns the ledger and collectors; a TypeScript plugin supplies the BB interface. Choose Claude Code, Codex, or Google's Gemini API for background extraction and completion review. Interactive BB threads have their own provider picker.
 
 ## Data model
 

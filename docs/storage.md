@@ -22,7 +22,8 @@ Objects are **replaced, not merged**. Missing JSON override files in BB mode, ma
 | Record | Contents |
 |---|---|
 | `config` | Identity, selected sources, account/workspace/application settings; see examples/config.json. |
-| `analyzer` | Explicit `provider`, optional `model` and `executable`. |
+| `analyzer` | Explicit `provider`, optional `model` and CLI-only `executable`. |
+| `gemini_credentials` | Gemini Developer API `api_key` for the selected project. |
 | `policy` | Analysis allowance and optional catch-up policy. |
 | `bb_context` | Output of `bb status --json` for scheduler setup. |
 | `google_client` | Downloaded Google Desktop OAuth client JSON. |
@@ -83,6 +84,6 @@ The macOS installer captures the storage backend/path/profile for scheduled jobs
 
 ## Boundaries
 
-This store owns Work Hub configuration and its Google, Slack, Better Stack and Granola OAuth credentials. GitHub CLI, BB Linear authentication, Claude/Codex subscriptions/keychains and BB server authentication remain owned by those tools. Work Hub neither copies nor overrides their private databases. Plugin bootstrap paths and capture/reminder switches remain normal BB settings; they must never contain secrets. The SQLite ledger, source excerpts, diagnostic metadata and lock files remain local and unencrypted.
+This store owns Work Hub configuration, optional Gemini API key and its Google, Slack, Better Stack and Granola OAuth credentials. GitHub CLI, BB Linear authentication, Claude/Codex subscriptions/keychains and BB server authentication remain owned by those tools. Work Hub neither copies nor overrides their private databases. Plugin bootstrap paths and capture/reminder switches remain normal BB settings; they must never contain secrets. The SQLite ledger, source excerpts, diagnostic metadata and lock files remain local and unencrypted.
 
 Tests cover precedence, no plaintext fallback, read-only overrides before refresh, JSON writeback/permissions, process-output redaction, migration expiry, and OAuth rotation/restart behavior. These are application checks, not an independent cryptographic audit of Env Catalog.

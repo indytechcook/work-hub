@@ -9,7 +9,7 @@ See [SETUP.md](../SETUP.md) for installation, accounts, model selection and back
 - `cli.py`: fixed JSON operations over stdin/stdout. No listening API port.
 - `settings.py`: private identity, timezone, source opt-ins and account settings.
 - `collect.py`: outbound source polling. No enabled sources means no collection.
-- `analyze.py`, `analyzer_runtime.py`, `worker.py`: explicit Claude/Codex provider selection, structured extraction, leased work and daily limits.
+- `analyze.py`, `analyzer_runtime.py`, `worker.py`: explicit Claude, Codex or Gemini provider selection, structured extraction, leased work and daily limits.
 - `slack_auth.py`, `mcp_login.py`, `mcp_access.py`: direct local sign-in and bounded read-only client operations.
 - `install_local.py`: selected-source collection and analysis through macOS LaunchAgents. `--dry-run` previews commands without installation.
 - `../connectors/google`: standard Google API adapter and optional read-only stdio MCP tools.

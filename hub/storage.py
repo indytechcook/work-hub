@@ -13,7 +13,7 @@ import tempfile
 
 RECORDS = ('config', 'analyzer', 'policy', 'bb_context', 'google_client',
            'google_tokens', 'slack_client', 'slack_tokens', 'betterstack_client',
-           'betterstack_tokens', 'granola_client', 'granola_tokens')
+           'betterstack_tokens', 'granola_client', 'granola_tokens', 'gemini_credentials')
 
 
 class StorageError(RuntimeError):

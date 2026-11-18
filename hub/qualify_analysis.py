@@ -1,10 +1,11 @@
 """Small semantic gate using synthetic traffic; never substitutes for a real-workload audit."""
 from analyze import classify,SYNTHETIC_PROMPT
+from analyzer_runtime import PROVIDERS
 import json
 import time
 import argparse
 parser=argparse.ArgumentParser()
-parser.add_argument("--provider",choices=["claude","codex"])
+parser.add_argument("--provider",choices=PROVIDERS)
 args=parser.parse_args()
 known={'id':'draft-obligation','title':'Send draft to Jamie','owner':'Alex Taylor','direction':'i_owe','state':'open','due_at':None}
 cases=[('acknowledgment','Jamie: Thanks for your message. I will take a look next week.',[known]),('fulfillment','Alex Taylor: I sent the draft to Jamie at 10 AM today.',[known]),('proposal','Assistant: You could email Jamie a draft if you decide to pursue this idea.',[])]

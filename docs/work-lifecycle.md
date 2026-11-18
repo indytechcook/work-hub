@@ -1,6 +1,6 @@
 # Automatic context and completion review
 
-Work Hub now links new BB conversations to work and checks commitments against related evidence. These features use the existing SQLite ledger, configured read connectors and selected Claude/Codex analyzer. They require no public ports or additional hosted service.
+Work Hub now links new BB conversations to work and checks commitments against related evidence. These features use the existing SQLite ledger, configured read connectors and selected Claude, Codex or Gemini analyzer. They require no public ports or additional hosted service.
 
 ## Conversation context
 

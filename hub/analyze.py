@@ -4,7 +4,7 @@ import os
 import subprocess
 from pathlib import Path
 from store import Store
-from analyzer_runtime import run
+from analyzer_runtime import PROVIDERS, run
 from settings import identity
 
 ROOT=Path(__file__).resolve().parent
@@ -36,7 +36,7 @@ if __name__=='__main__':
     import argparse
     parser=argparse.ArgumentParser()
     parser.add_argument('--self-test',action='store_true')
-    parser.add_argument('--provider',choices=['claude','codex'])
+    parser.add_argument('--provider',choices=PROVIDERS)
     args=parser.parse_args()
     if args.provider and not args.self_test:parser.error('--provider is only for synthetic self-tests; configure the analyzer record for the worker')
     os.umask(0o077);STATE.mkdir(mode=0o700,exist_ok=True)

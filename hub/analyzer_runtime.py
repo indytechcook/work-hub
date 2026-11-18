@@ -8,17 +8,25 @@ import tempfile
 from storage import Store
 
 
+PROVIDERS = ('claude', 'codex', 'gemini')
+
+
 def settings(state, provider=None):
     config=Store(state).read('analyzer') or {}
     if not config and provider is None:raise ValueError('Choose an analyzer provider in the analyzer record before background analysis')
     if not isinstance(config,dict) or set(config)-{'provider','model','executable'}:
         raise ValueError('Invalid analyzer settings')
     configured=config.get('provider')
-    if config and configured not in ('codex','claude'):raise ValueError('Choose an explicit analyzer provider')
+    if config and configured not in PROVIDERS:raise ValueError('Choose an explicit analyzer provider')
     selected=provider or configured
-    if selected not in ('codex','claude'):raise ValueError('Unsupported analyzer provider')
+    if selected not in PROVIDERS:raise ValueError('Unsupported analyzer provider')
     # A qualification override must not inherit another provider's executable/model.
     if selected!=configured:config={}
+    if selected == 'gemini':
+        from gemini import DEFAULT_MODEL, model_id
+        if 'executable' in config:
+            raise ValueError('Gemini uses the API and does not accept an executable')
+        return selected, None, model_id(config.get('model', DEFAULT_MODEL))
     command=config.get('executable',selected)
     if not isinstance(command,str) or not command:raise ValueError('Invalid analyzer executable')
     executable=shutil.which(command)
@@ -70,6 +78,9 @@ def claude_result(stdout):
 
 def run(payload, prompt, schema_path, state, provider=None):
     selected,executable,model=settings(state,provider)
+    if selected == 'gemini':
+        import gemini
+        return gemini.run(payload, prompt, schema_path, state, model)
     state.mkdir(mode=0o700,parents=True,exist_ok=True)
     env={k:v for k,v in os.environ.items() if k in ('HOME','PATH','TMPDIR','LANG','USER')}
     with tempfile.TemporaryDirectory(dir=state,prefix='analysis-') as folder:
