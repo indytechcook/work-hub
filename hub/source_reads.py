@@ -46,7 +46,7 @@ def read_reference(ref, project_id=None):
         return {'external_id':ref['channel']+':'+ref['stamp'],'title':'Slack conversation','text':body,'url':ref['url']}
     if source=='github':
         if ref['kind']=='pull':
-            body=json.loads(command(['gh','pr','view',str(ref['number']),'--repo',ref['repo'],'--json','id,title,body,state,mergedAt,closedAt,updatedAt,headRefOid,reviews,comments,url']))
+            body=json.loads(command(['gh','pr','view',str(ref['number']),'--repo',ref['repo'],'--json','id,title,body,state,mergedAt,closedAt,updatedAt,headRefOid,reviews,comments,url,reviewDecision,statusCheckRollup']))
             actor=json.loads(command(['gh','api','user']))['login']
             body['authenticated_reviewer']=actor
             return {'external_id':body['id'],'title':body['title'],'text':json.dumps(body),'url':ref['url']}
@@ -65,12 +65,12 @@ def read_reference(ref, project_id=None):
     raise ValueError('No targeted reader for source')
 
 
-def refresh_reference(store, url, project_id=None):
+def refresh_reference(store, url, project_id=None, *, retry_error=False):
     ref=reference(url)
     if ref is None:raise ValueError('Unsupported source reference')
     cache=store._record('source_read:'+ref['key'],{})
     same_scope=ref['source']!='linear' or ('project_id' in cache and cache['project_id']==project_id)
-    if same_scope and cache.get('checked_at',0)>time.time()-120:
+    if same_scope and cache.get('checked_at',0)>time.time()-120 and not (retry_error and cache.get('error')):
         check_source_scope(ref)
         if cache.get('error'):raise RuntimeError('Referenced source temporarily unavailable')
         if store.db.execute('SELECT 1 FROM conversations WHERE id=?',(cache.get('conversation_id'),)).fetchone():return cache['conversation_id']

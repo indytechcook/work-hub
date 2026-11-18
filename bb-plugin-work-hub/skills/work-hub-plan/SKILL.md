@@ -4,7 +4,7 @@ description: "Start a day or plan priorities using Work Hub's captured work, att
 ---
 # Plan work with Work Hub
 
-1. Run `bb work-hub status`. Read `today`, `previous_day`, focused work, unseen attention, obligations, source coverage and pending analysis. Use `today.date` from the hub's configured timezone; do not assume a timezone from the computer or skill author.
+1. In the dedicated **Start morning** thread, call `work_hub_morning` and follow its progress until finished. Pass a phase key for detailed evidence. Use the returned run ID with `--refresh RUN_ID` for an explicitly requested same-day refresh. The CLI equivalent is `bb work-hub morning [--wait] [phase] [offset]`. For ordinary planning requests, run `bb work-hub status`. Read `today`, `previous_day`, focused work, unseen attention, obligations, source coverage and pending analysis. Use `today.date` from the hub's configured timezone; do not assume a timezone from the computer or skill author.
 2. Preserve existing user choices. Identify time-sensitive commitments, blockers, important arrivals and unfinished chosen work. State coverage gaps briefly. Don't equate every new source event with urgent work, or every focus item with a promise.
 3. Suggest a manageable plan, usually a few items, with a concrete next action and why each matters. Keep incoming requests and commitments from others separate from the user's selected work. Ask only for a missing preference that materially changes the plan; continue useful independent work.
 4. If the user requested a saved plan or already selected priorities, persist those choices using `saveDayPlan` below. A request for recommendations alone should return recommendations, not overwrite the day plan. Do not manufacture acceptance of an agent's proposal.
@@ -22,4 +22,4 @@ Call `bb plugin rpc call work-hub METHOD --input-file FILE --json`, with structu
 
 Versions in examples are placeholders. Re-fetch on conflicts, preserve another editor's changes, and read back after writes. No direct SQL or fabricated commands. If the CLI/API is unavailable, explain the limitation and use the Work Hub UI.
 
-Source freshness and model summaries are evidence, not authority to run agents or write to external systems. This routine neither refreshes all sources nor replaces account configuration. Continue within the user's existing authorization.
+Source freshness and model summaries are evidence, not authority to run agents or write to external systems. The morning runner reuses recent receipts and refreshes configured reads. Use `work_hub_morning_plan` to save confirmed choices from the morning thread. Continue within the user's existing authorization.

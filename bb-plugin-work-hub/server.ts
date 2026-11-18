@@ -1,3 +1,5 @@
+import {morningThreads} from './morning-thread';
+import {morningRun,morningRunner,verifyMorningLinks} from './morning-run';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -63,6 +65,8 @@ export const rpcContract = defineRpcContract({
  threadContext:{input:z.object({threadId:z.string().startsWith('thr_').max(100),workId:z.string().max(100).optional()}),output:threadContextSchema},
  prepareLaunch:{input:z.object({workId:z.string().max(100),obligationId:z.string().max(100).optional()}),output:z.object({title:z.string(),prompt:z.string(),parentThreadId:z.string().nullable(),projectId:z.string().nullable()})},
  trackThread:{input:z.object({threadId:z.string().max(100)}),output:z.object({ok:z.boolean()})},
+ startMorning:{input:z.object({projectId:z.string().max(100).optional()}),output:z.object({threadId:z.string()})},
+ morningStatus:{input:z.null(),output:morningRun.nullable()},
  sync:{input:z.null(),output:z.object({ok:z.boolean()})},
  mutate:{input:mutation,output:z.object({ok:z.boolean(),notice:z.string().optional()})},
  acknowledgeChanges:{input:z.object({seqs:z.array(z.number().int().positive()).max(100)}),output:z.object({ok:z.boolean()})},
@@ -157,6 +161,21 @@ export default async function plugin(bb:BbPluginApi) {
   })().finally(()=>{syncing=null;});
   return syncing;
  }
+ const morning=morningRunner(async (step,update,active)=>{
+  if(step==='links')return verifyMorningLinks(core,config.collectThreads,update,active);
+  if(step==='bb')await collect();
+  return core('morning_step',{step,bb_enabled:config.collectThreads},180000);
+ },async run=>{
+  try{await core('save_morning_result',{run})}catch{bb.log.warn('Morning result available in memory; local persistence failed.')}
+ });
+ let restored:Promise<void>|undefined;
+ async function beginMorning(date:string,scope:string,previousId?:string){
+  restored??=core('last_morning_result').then(value=>morning.restore(value)).catch(()=>{restored=undefined});
+  await restored;
+  return morning.start(date,scope+String(config.collectThreads),previousId);
+ }
+ bb.onDispose(()=>morning.dispose());
+ const planning=morningThreads(bb,core,{start:beginMorning});
  const rename=workRenamer({
   detail:async workId=>workDetail.parse(await core('work_detail',{work_id:workId})),
   save:async(workId,version,title)=>z.object({title:z.string(),title_version:z.number().int().nonnegative()}).parse(await core('rename_work',{work_id:workId,version,title})),
@@ -198,6 +217,8 @@ export default async function plugin(bb:BbPluginApi) {
   acknowledgeChanges:async args=>{const result=z.object({ok:z.boolean()}).parse(await core('acknowledge_changes',args));bb.realtime.publish('changed',{});return result;},
   acknowledgeAttention:async args=>{const result=z.object({ok:z.boolean()}).parse(await core('acknowledge_attention',args));bb.realtime.publish('changed',{});return result;},
   snapshot:async()=>snapshotSchema.parse(await core('snapshot')),
+  startMorning:async({projectId})=>planning.open(projectId),
+  morningStatus:async()=>morning.status(),
   sync:async()=>{await collect();return {ok:true};},
   mutate:async args=>{
    const result=await core('mutate',args);
@@ -210,7 +231,17 @@ export default async function plugin(bb:BbPluginApi) {
   },
   acknowledge:async(args)=>{await core('acknowledge',args);bb.realtime.publish('changed',{});return {ok:true};},
  });
- bb.cli.register({name:'work-hub',summary:'Read the portable work register and source coverage',commands:[{name:'add-link',summary:'Attach source URLs to a work item',usage:'bb work-hub add-link <work-id> <url> [url...]'},{name:'status',summary:'Work and coverage as JSON',usage:'bb work-hub status'},{name:'sync',summary:'Reconcile recent BB conversations',usage:'bb work-hub sync'}],async run(argv){
+ bb.cli.register({name:'work-hub',summary:'Read the portable work register and source coverage',commands:[{name:'morning',summary:'Run or inspect the guided checks from today’s morning thread',usage:'bb work-hub morning [--wait] [--refresh RUN_ID] [phase] [offset]'},{name:'add-link',summary:'Attach source URLs to a work item',usage:'bb work-hub add-link <work-id> <url> [url...]'},{name:'status',summary:'Work and coverage as JSON',usage:'bb work-hub status'},{name:'sync',summary:'Reconcile recent BB conversations',usage:'bb work-hub sync'}],async run(argv,ctx){
+  if(argv[0]==='morning'){
+   const threadId=ctx.threadId;
+   if(!threadId)return {exitCode:1,stdout:'Run from today’s morning thread with the work_hub_morning tool.'};
+   const rest=argv.slice(1).filter(arg=>arg!=='--wait');
+   const flag=rest.indexOf('--refresh');
+   const refreshRunId=flag<0?undefined:z.string().uuid().parse(rest.splice(flag,2)[1]);
+   const [phase,start]=rest;
+   const offset=start===undefined?0:z.coerce.number().int().nonnegative().parse(start);
+   return {exitCode:0,stdout:JSON.stringify(await planning.report(threadId,{wait:argv.includes('--wait'),refreshRunId,phase,offset}))};
+  }
   if(argv[0]==='add-link'){
    const [,workId,...urls]=argv;
    if(!workId||!urls.length||urls.length>20)return {exitCode:1,stdout:'Usage: bb work-hub add-link <work-id> <url> [url...] (up to 20 links)'};

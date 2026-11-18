@@ -13,6 +13,15 @@ def main():
     op=request.get('op');args=request.get('args',{})
     if not isinstance(args,dict):raise ValueError('Expected arguments object')
     methods={'record_thread_name','rename_work','configure_tracking','legacy_page','keep_legacy','save_handoff','acknowledge_changes','save_intent','save_day_plan','acknowledge_attention','work_detail','work_index','associate','work_options','thread_context','snapshot','ingest','source_failure','claim_analysis','apply_analysis','analysis_failed','mutate','acknowledge','export','claim_reminder','reminder_payload','finish_reminder','import_snapshot','register_agent_thread','ensure_context','context_packet','queue_completion','completion_page','resolve_completion'}
+    if op in ('morning_targets','morning_links','morning_step','morning_context','record_morning_thread','last_morning_result','save_morning_result'):
+        from morning import morning_targets,verify_links,morning_context,record_morning_thread,last_morning_result,save_morning_result
+        from morning_checks import run_step
+        store=Store(STATE/'work.db')
+        try:result={'morning_targets':morning_targets,'morning_links':verify_links,'morning_step':run_step,'morning_context':morning_context,'record_morning_thread':record_morning_thread,'last_morning_result':last_morning_result,'save_morning_result':save_morning_result}[op](store,**args)
+        except Exception as error:
+            raise ValueError('Morning check unavailable ('+type(error).__name__+'). Check source access and configuration.') from None
+        finally:store.close()
+        print(json.dumps({'ok':True,'result':result}));return
     if op in ('add_source_link','hydrate_context'):
         from source_reads import add_source_link,hydrate_context
         store=Store(STATE/'work.db')

@@ -29,6 +29,8 @@ Choose **Add links** beside a work item's title in the dashboard or thread sideb
 
 Open a work item and choose **Rename work** beneath its title, in either Work Hub or a thread’s **Work context** sidebar. Enter a name and **Save name**, or **Cancel** to discard it. Names are 1–200 characters; competing edits require reloading the saved name before retrying. To give an attached BB thread the same name, check **Also rename a BB thread** and choose the thread, then **Save both names**. Other source titles and evidence remain separate.
 
+Choose **Start morning** to open today’s guided planning thread. It checks configured sources, presents a linked brief, and helps you save an ordered plan. [Morning checks and private configuration](docs/morning.md)
+
 ## Daily workflow skills
 
 The plugin includes `work-hub`, `work-hub-plan`, `work-hub-resume`, `work-hub-follow-up`, `work-hub-checkpoint`, and `work-hub-review-completion`. Ask your AI to plan the day, resume work, review commitments, or save a return point. They use your configured Work Hub and work across BB providers; no personal orchestration skill is needed. See [skill usage and limits](docs/skills.md).

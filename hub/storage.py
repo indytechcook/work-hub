@@ -11,7 +11,7 @@ import re
 import subprocess
 import tempfile
 
-RECORDS = ('config', 'analyzer', 'policy', 'bb_context', 'google_client',
+RECORDS = ('config', 'morning', 'linear_credentials', 'analyzer', 'policy', 'bb_context', 'google_client',
            'google_tokens', 'slack_client', 'slack_tokens', 'betterstack_client',
            'betterstack_tokens', 'granola_client', 'granola_tokens', 'gemini_credentials')
 
