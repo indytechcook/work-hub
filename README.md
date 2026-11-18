@@ -16,6 +16,7 @@ Start with the 77-second overview, then explore [nine short workflow walkthrough
 
 - Connects BB conversations across models without moving or replacing their transcripts.
 - Focusing a work item pins its linked, unarchived BB threads. You can manage those pins in BB after removing focus.
+- Groups work by the Linear projects of its linked issues. Search a project name to find related work. When several projects apply, their names appear together. A saved area is the fallback for work without a known Linear project.
 - Tracks what you owe and what others owe you, with source evidence and shared status.
 - Keeps user-chosen work names and next actions through source updates and model analysis.
 - Reads selected Google, Slack, Linear, GitHub, Granola and Better Stack sources.

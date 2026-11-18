@@ -35,6 +35,12 @@ CREATE TABLE IF NOT EXISTS job_leases(job_id TEXT PRIMARY KEY,token TEXT NOT NUL
 CREATE TABLE IF NOT EXISTS reminders(id TEXT PRIMARY KEY, day TEXT NOT NULL, payload TEXT NOT NULL, state TEXT NOT NULL, created_at REAL NOT NULL, finished_at REAL);
 CREATE TABLE IF NOT EXISTS reminder_items(reminder_id TEXT NOT NULL, obligation_id TEXT NOT NULL, due_at REAL NOT NULL, day TEXT NOT NULL, UNIQUE(obligation_id,due_at,day));
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+CREATE VIEW IF NOT EXISTS work_project_names AS
+ SELECT DISTINCT m.work_id,json_extract(p.value,'$') name
+ FROM work_memberships m JOIN conversations c ON c.id=m.conversation_id
+ JOIN source_references r ON r.conversation_id=c.id AND r.source='linear'
+ JOIN meta p ON p.key='project_for:'||r.key
+ WHERE c.source!='linear' OR substr(r.key,-length(c.external_id)-1)=':'||upper(c.external_id);
 '''
 SOURCES = ['bb','gmail','calendar','drive','linear','github','slack','meetings','betterstack']
 
@@ -377,6 +383,7 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, Labe
         w['title_version']=json.loads(name['name_record'])['version'] if name['name_record'] else 0
         w=self.label_work_rows([w])[0]
         w['intent']=self.intent(w['id'])
+        w['project']=' · '.join(r[0] for r in self.db.execute('SELECT name FROM work_project_names WHERE work_id=? ORDER BY name COLLATE NOCASE,name',(w['id'],))) or w['intent']['project']
         w['decisions']=[dict(r) for r in self.db.execute('SELECT d.id,d.conversation_id,d.text,d.quote,d.evidence_event event_id FROM decisions d JOIN work_memberships m ON m.conversation_id=d.conversation_id WHERE m.work_id=?',(w['id'],))]
         w['conversations']=[dict(r) for r in self.db.execute('SELECT c.id,c.source,c.external_id,c.title,c.url,c.model,c.updated_at,r.summary,r.next_action,r.updated_at checkpoint_at,e.analysis_state,e.occurred_at latest_occurred_at,CASE WHEN c.source="slack" THEN e.text ELSE NULL END preview_text FROM conversations c JOIN work_memberships m ON m.conversation_id=c.id LEFT JOIN return_points r ON r.conversation_id=c.id LEFT JOIN events e ON e.id=c.latest_event WHERE m.work_id=? ORDER BY c.updated_at DESC',(w['id'],))]
         for c in w['conversations']:

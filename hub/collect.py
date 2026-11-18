@@ -150,7 +150,11 @@ class Collector:
             body=run(['bb','linear','issue',identifier,'--comments']);lines=body.splitlines()
             url=next((l[5:].strip() for l in lines if l.startswith('URL: ')),'')
             items.append(receipt(identifier,lines[0] if lines else identifier,body,url=url,occurred_at=time.time()))
-        return self.save('linear',items,'Open issues assigned to you in BB-bound teams, partitioned by workflow state; known open follow-ups also refreshed after closure; recent comments only',{'through':time.time()},complete)
+        scope='Open assigned issues in BB-bound teams, known open follow-ups, recent comments and project names for captured issue links'
+        self.save('linear',items,scope,complete=False)
+        from linear_projects import refresh_projects
+        refresh_projects(self.store)
+        return self.save('linear',[],scope,{'through':time.time()},complete)
     def slack(self):
         from slack import call
         cp=self.checkpoint('slack');now=time.time();after=(cp['through']-86400) if cp else now-7*86400
