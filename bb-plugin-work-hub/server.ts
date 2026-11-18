@@ -5,6 +5,7 @@ import { defineRpcContract, type BbPluginApi } from '@get-bb/plugin-sdk';
 import { z } from 'zod';
 import {registerHandoffs} from './handoff-hook';
 import {registerContextHook} from './context-hook';
+import {workRenamer} from './rename-work';
 import {workNameError} from './work-name';
 import {pinFocusedThreads} from './focus-pins';
 import { launchContext } from './launch-context';
@@ -50,7 +51,7 @@ export const rpcContract = defineRpcContract({
  snapshot:{input:z.null(),output:snapshotSchema},
  workDetail:{input:z.object({workId:z.string().max(100)}),output:workDetail},
  workIndex:{input:z.object({query:z.string().max(200),status:z.enum(['all','active','waiting','done']),offset:z.number().int().min(0).max(100000)}),output:workIndex},
- renameWork:{input:z.object({workId:z.string().max(100),version:z.number().int().nonnegative(),title:z.string().max(1000).refine(value=>!workNameError(value),'Use a single-line work name of 1–200 characters')}),output:z.object({title:z.string(),title_version:z.number().int().nonnegative()})},
+ renameWork:{input:z.object({workId:z.string().max(100),threadId:z.string().startsWith('thr_').max(100).optional(),version:z.number().int().nonnegative(),title:z.string().max(1000).refine(value=>!workNameError(value),'Use a single-line work name of 1–200 characters')}),output:z.object({title:z.string(),title_version:z.number().int().nonnegative(),thread_error:z.string().optional()})},
  saveIntent:{input:z.object({workId:z.string().max(100),version:z.number().int().nonnegative(),next_action:z.string().max(1500),purpose:z.string().max(3000),project:z.string().max(120),thread_id:z.string().nullable()}),output:intent},
  saveDayPlan:{input:z.object({date:z.string(),version:z.number().int().nonnegative(),work_ids:z.array(z.string()).max(12),note:z.string().max(3000)}),output:dayPlan},
  acknowledgeAttention:{input:z.object({tokens:z.array(z.string().length(32)).max(100)}),output:z.object({ok:z.boolean()})},
@@ -153,6 +154,13 @@ export default async function plugin(bb:BbPluginApi) {
   })().finally(()=>{syncing=null;});
   return syncing;
  }
+ const rename=workRenamer({
+  detail:async workId=>workDetail.parse(await core('work_detail',{work_id:workId})),
+  save:async(workId,version,title)=>z.object({title:z.string(),title_version:z.number().int().nonnegative()}).parse(await core('rename_work',{work_id:workId,version,title})),
+  recordThread:(workId,threadId,title)=>core('record_thread_name',{work_id:workId,thread_id:threadId,title}),
+  threads:{get:args=>bb.sdk.threads.get(args),update:args=>bb.sdk.threads.update(args)},
+  changed:()=>bb.realtime.publish('changed',{}),
+ });
  bb.rpc.register(rpcContract,{
   legacyPage:async args=>legacyPage.parse(await core('legacy_page',args)),
   keepLegacy:async args=>{const result=z.object({ok:z.boolean()}).parse(await core('keep_legacy',args));bb.realtime.publish('changed',{});return result},
@@ -174,7 +182,7 @@ export default async function plugin(bb:BbPluginApi) {
   associate:async({conversationId,workId,action})=>{const result=z.object({ok:z.boolean()}).parse(await core('associate',{conversation_id:conversationId,work_id:workId,action}));bb.realtime.publish('changed',{});return result;},
   workDetail:async({workId})=>workDetail.parse(await core('work_detail',{work_id:workId})),
   workIndex:async args=>workIndex.parse(await core('work_index',args)),
-  renameWork:async({workId,...args})=>{const result=await core('rename_work',{work_id:workId,...args});bb.realtime.publish('changed',{});return z.object({title:z.string(),title_version:z.number().int().nonnegative()}).parse(result);},
+  renameWork:rename,
   saveIntent:async({workId,...args})=>{const result=intent.parse(await core('save_intent',{work_id:workId,...args}));bb.realtime.publish('changed',{});return result;},
   saveDayPlan:async args=>{const result=dayPlan.parse(await core('save_day_plan',args));bb.realtime.publish('changed',{});return result;},
   acknowledgeChanges:async args=>{const result=z.object({ok:z.boolean()}).parse(await core('acknowledge_changes',args));bb.realtime.publish('changed',{});return result;},

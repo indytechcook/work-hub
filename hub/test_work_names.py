@@ -79,6 +79,21 @@ class WorkNameTests(unittest.TestCase):
         detail=self.s._work_detail(row)
         self.assertEqual((detail['title'],detail['title_version']),('Concurrent name',1))
 
+    def test_confirmed_thread_name_only_updates_its_title(self):
+        before=self.s.export()['tables']
+        self.s.record_thread_name(self.wid,'thr_example','New BB title')
+        after=self.s.export()['tables']
+        for table in before:
+            if table not in ('conversations','changes'):self.assertEqual(before[table],after[table],table)
+        self.assertEqual(after['conversations'],[{**before['conversations'][0],'title':'New BB title'}])
+        self.assertEqual(self.s.work_detail(self.wid)['work']['conversations'][0]['title'],'New BB title')
+
+    def test_thread_name_mirror_rejects_unrelated_and_external_sources(self):
+        self.s.ingest('slack',[dict(external_id='thr_external',title='Slack source',text=MESSAGE)])
+        with self.assertRaises(ValueError):self.s.record_thread_name(self.wid,'thr_missing','Name')
+        with self.assertRaises(ValueError):self.s.record_thread_name(digest('slack','thr_external'),'thr_external','Name')
+        with self.assertRaises(ValueError):self.s.record_thread_name(self.wid,'thr_example','Invalid\nname')
+
     def test_explicit_slack_names_win_everywhere_and_keep_previews(self):
         self.s.ingest('slack',[dict(external_id='source',title='Slack · DM',text=MESSAGE)])
         wid=digest('slack','source')

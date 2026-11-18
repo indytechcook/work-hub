@@ -15,6 +15,14 @@ def fingerprint(*parts):
     return hashlib.sha256(json.dumps(parts, sort_keys=True).encode()).hexdigest()[:32]
 
 
+def work_name(title):
+    if not isinstance(title,str) or any(unicodedata.category(c) in ('Cc','Zl','Zp') for c in title):
+        raise ValueError('Use a single-line work name without control characters')
+    title=title.strip()
+    if not 1<=len(title)<=200:raise ValueError('Work name must be 1–200 characters')
+    return title
+
+
 class PresentationMixin:
     def _record(self, key, default):
         row = self.db.execute('SELECT value FROM meta WHERE key=?', (key,)).fetchone()
@@ -28,10 +36,7 @@ class PresentationMixin:
         return self._record('intent:'+work_id, dict(next_action='', purpose='', project='', thread_id=None, version=0, updated_at=None))
 
     def rename_work(self, work_id, version, title):
-        if not isinstance(title,str) or any(unicodedata.category(c) in ('Cc','Zl','Zp') for c in title):
-            raise ValueError('Use a single-line work name without control characters')
-        title=title.strip()
-        if not 1<=len(title)<=200:raise ValueError('Work name must be 1–200 characters')
+        title=work_name(title)
         if type(version) is not int or version<0:raise ValueError('Invalid name version')
         with self.db:
             self.db.execute('BEGIN IMMEDIATE')
@@ -45,6 +50,17 @@ class PresentationMixin:
             self._put_record('work_name:'+work_id,dict(version=version+1,updated_at=now))
             self.change('work_renamed',work_id,title)
         return dict(title=title,title_version=version+1)
+
+    def record_thread_name(self, work_id, thread_id, title):
+        """Mirror a confirmed BB rename without collecting or rewriting evidence."""
+        title=work_name(title)
+        with self.db:
+            self.db.execute('BEGIN IMMEDIATE')
+            row=self.db.execute("SELECT c.id FROM conversations c JOIN work_memberships m ON m.conversation_id=c.id WHERE c.source='bb' AND c.external_id=? AND m.work_id=?",(thread_id,work_id)).fetchone()
+            if not row:raise ValueError('Thread is no longer associated with this work')
+            self.db.execute('UPDATE conversations SET title=? WHERE id=?',(title,row['id']))
+            self.change('thread_renamed',row['id'],title)
+        return {'ok':True}
 
     def save_intent(self, work_id, version, next_action, purpose='', project='', thread_id=None):
         for value, limit in [(next_action,1500),(purpose,3000),(project,120)]:
