@@ -434,7 +434,7 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, Labe
         if not self.db.execute('SELECT 1 FROM conversations WHERE id=?',(conversation_id,)).fetchone():raise ValueError('Unknown conversation')
         linked=[dict(r) for r in self.db.execute('SELECT w.id,w.title,w.status FROM work w JOIN work_memberships m ON m.work_id=w.id WHERE m.conversation_id=? ORDER BY w.title',(conversation_id,))]
         # instr treats search text literally, including SQL wildcard characters.
-        options=[dict(r) for r in self.db.execute("SELECT w.id,w.title,w.status FROM work w WHERE (instr(lower(w.title),lower(?))>0 OR EXISTS(SELECT 1 FROM work_memberships sm JOIN conversations sc ON sc.id=sm.conversation_id JOIN events se ON se.id=sc.latest_event WHERE sm.work_id=w.id AND sc.source='slack' AND instr(lower(se.text || ' ' || slack_search_text(se.text)),lower(?))>0)) AND NOT EXISTS(SELECT 1 FROM work_memberships m WHERE m.work_id=w.id AND m.conversation_id=?) AND EXISTS(SELECT 1 FROM work_memberships m WHERE m.work_id=w.id) ORDER BY w.updated_at DESC,w.id LIMIT 51",(query,query,conversation_id))]
+        options=[dict(r) for r in self.db.execute("SELECT w.id,w.title,w.status FROM work w WHERE (instr(lower(w.title),lower(?))>0 OR EXISTS(SELECT 1 FROM work_memberships sm JOIN conversations sc ON sc.id=sm.conversation_id JOIN events se ON se.id=sc.latest_event WHERE sm.work_id=w.id AND sc.source='slack' AND instr(lower(se.text || ' ' || slack_search_text(se.text)),lower(?))>0)) AND NOT EXISTS(SELECT 1 FROM work_memberships m WHERE m.work_id=w.id AND m.conversation_id=?) AND (EXISTS(SELECT 1 FROM work_memberships m WHERE m.work_id=w.id) OR EXISTS(SELECT 1 FROM meta WHERE key='standalone:'||w.id)) ORDER BY w.updated_at DESC,w.id LIMIT 51",(query,query,conversation_id))]
         return {'linked':self.label_work_rows(linked),'options':self.label_work_rows(options[:50]),'has_more':len(options)>50}
 
     def thread_context(self, thread_id, work_id=None):
@@ -455,7 +455,7 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, Labe
         for s in sources:
             s.pop('checkpoint',None)
             if s['state']=='current' and s['last_success'] and now-s['last_success']>900:s['state']='stale'
-        work=[dict(r) for r in self.db.execute('''SELECT w.* FROM work w WHERE EXISTS(SELECT 1 FROM work_memberships m WHERE m.work_id=w.id)
+        work=[dict(r) for r in self.db.execute('''SELECT w.* FROM work w WHERE EXISTS(SELECT 1 FROM meta WHERE key='standalone:'||w.id) OR EXISTS(SELECT 1 FROM work_memberships m WHERE m.work_id=w.id)
               AND (w.focus=1 OR EXISTS(SELECT 1 FROM work_memberships m JOIN conversations c ON c.id=m.conversation_id WHERE m.work_id=w.id AND c.source='bb') OR EXISTS(SELECT 1 FROM work_memberships m JOIN obligations o ON o.conversation_id=m.conversation_id WHERE m.work_id=w.id AND o.state IN ('open','needs_review')) OR EXISTS(SELECT 1 FROM conversation_work_links l WHERE l.work_id=w.id))
               ORDER BY focus DESC,updated_at DESC LIMIT 200''')]
         work=[self._work_detail(w) for w in work]

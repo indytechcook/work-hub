@@ -45,6 +45,13 @@ const mutation = z.object({kind:z.enum(['work','obligation','conversation']),id:
 const reviewRow=z.object({obligation_id:z.string(),title:z.string(),state:z.string(),verdict:z.string().nullable(),reason:z.string().nullable(),error:z.string().nullable(),checked_at:z.number().nullable(),commitment_state:z.string(),current_version:z.number(),obligation_version:z.number().nullable(),applied_version:z.number().nullable(),work_id:z.string(),url:z.string(),evidence:z.array(z.object({event_id:z.string(),url:z.string(),quote:z.string(),occurred_at:z.number()}))});
 const reviewPage=z.object({items:z.array(reviewRow),total:z.number(),has_more:z.boolean(),counts:z.record(z.string(),z.number()),budget:z.object({limit:z.number(),used:z.number(),remaining:z.number()})});
 export type CompletionPage=z.infer<typeof reviewPage>;
+const createWorkInput = z.object({
+ title: z.string().max(1000).refine(value => !workNameError(value), 'Use a single-line work name of 1–200 characters'),
+ purpose: z.string().max(3000).optional(),
+ requestId: z.string().min(1).max(100).optional(),
+});
+const createdWork = z.object({id: z.string(), created: z.boolean()});
+
 export const rpcContract = defineRpcContract({
  legacyPage:{input:z.object({offset:z.number().int().min(0).max(100000)}),output:legacyPage},
  keepLegacy:{input:z.object({obligation_id:z.string().max(100),version:z.number().int()}),output:z.object({ok:z.boolean()})},
@@ -55,6 +62,7 @@ export const rpcContract = defineRpcContract({
  snapshot:{input:z.null(),output:snapshotSchema},
  workDetail:{input:z.object({workId:z.string().max(100)}),output:workDetail},
  workIndex:{input:z.object({query:z.string().max(200),status:z.enum(['all','active','waiting','done']),offset:z.number().int().min(0).max(100000)}),output:workIndex},
+ createWork:{input:createWorkInput,output:createdWork},
  renameWork:{input:z.object({workId:z.string().max(100),threadId:z.string().startsWith('thr_').max(100).optional(),version:z.number().int().nonnegative(),title:z.string().max(1000).refine(value=>!workNameError(value),'Use a single-line work name of 1–200 characters')}),output:z.object({title:z.string(),title_version:z.number().int().nonnegative(),thread_error:z.string().optional()})},
  saveIntent:{input:z.object({workId:z.string().max(100),version:z.number().int().nonnegative(),next_action:z.string().max(1500),purpose:z.string().max(3000),project:z.string().max(120),thread_id:z.string().nullable()}),output:intent},
  saveDayPlan:{input:z.object({date:z.string(),version:z.number().int().nonnegative(),work_ids:z.array(z.string()).max(12),note:z.string().max(3000)}),output:dayPlan},
@@ -192,7 +200,21 @@ export default async function plugin(bb:BbPluginApi) {
   bb.realtime.publish('changed',{});
   return result;
  }
+ async function createWork(input:z.infer<typeof createWorkInput>){
+  const {title,purpose,requestId} = createWorkInput.parse(input);
+  const saved = createdWork.parse(await core('create_work',{title,purpose,request_id:requestId}));
+  if(saved.created)bb.realtime.publish('changed',{});
+  return saved;
+ }
+ bb.agents.registerTool({
+  name:'work_hub_create_work',
+  description:'Save a standalone personal work item in the local Work Hub. Returns its ID.',
+  instructions:'When asked to add personal work to Work Hub, check for existing work first. Use this tool to create the item locally. If Work Hub is unavailable, report the failure. Never file a team issue as a fallback.',
+  parameters:createWorkInput,
+  async execute(args){return JSON.stringify(await createWork(args))}
+ });
  bb.rpc.register(rpcContract,{
+  createWork,
   legacyPage:async args=>legacyPage.parse(await core('legacy_page',args)),
   keepLegacy:async args=>{const result=z.object({ok:z.boolean()}).parse(await core('keep_legacy',args));bb.realtime.publish('changed',{});return result},
   completionPage:async args=>reviewPage.parse(await core('completion_page',args)),
@@ -234,7 +256,7 @@ export default async function plugin(bb:BbPluginApi) {
   },
   acknowledge:async(args)=>{await core('acknowledge',args);bb.realtime.publish('changed',{});return {ok:true};},
  });
- bb.cli.register({name:'work-hub',summary:'Read the portable work register and source coverage',commands:[{name:'morning',summary:'Run or inspect the guided checks from today’s morning thread',usage:'bb work-hub morning [--wait] [--refresh RUN_ID] [phase] [offset]'},{name:'add-link',summary:'Attach source URLs to a work item',usage:'bb work-hub add-link <work-id> <url> [url...]'},{name:'status',summary:'Work and coverage as JSON',usage:'bb work-hub status'},{name:'sync',summary:'Reconcile recent BB conversations',usage:'bb work-hub sync'}],async run(argv,ctx){
+ bb.cli.register({name:'work-hub',summary:'Read the portable work register and source coverage',commands:[{name:'create',summary:'Create a standalone personal work item',usage:'bb work-hub create <title> [purpose]'},{name:'morning',summary:'Run or inspect the guided checks from today’s morning thread',usage:'bb work-hub morning [--wait] [--refresh RUN_ID] [phase] [offset]'},{name:'add-link',summary:'Attach source URLs to a work item',usage:'bb work-hub add-link <work-id> <url> [url...]'},{name:'status',summary:'Work and coverage as JSON',usage:'bb work-hub status'},{name:'sync',summary:'Reconcile recent BB conversations',usage:'bb work-hub sync'}],async run(argv,ctx){
   if(argv[0]==='morning'){
    const threadId=ctx.threadId;
    if(!threadId)return {exitCode:1,stdout:'Run from today’s morning thread with the work_hub_morning tool.'};
@@ -244,6 +266,10 @@ export default async function plugin(bb:BbPluginApi) {
    const [phase,start]=rest;
    const offset=start===undefined?0:z.coerce.number().int().nonnegative().parse(start);
    return {exitCode:0,stdout:JSON.stringify(await planning.report(threadId,{wait:argv.includes('--wait'),refreshRunId,phase,offset}))};
+  }
+  if(argv[0]==='create'){
+   if(argv.length<2||argv.length>3)return {exitCode:1,stdout:'Usage: bb work-hub create <title> [purpose]'};
+   return {exitCode:0,stdout:JSON.stringify(await createWork({title:argv[1],purpose:argv[2]}))};
   }
   if(argv[0]==='add-link'){
    const [,workId,...urls]=argv;
@@ -258,7 +284,7 @@ export default async function plugin(bb:BbPluginApi) {
   }
   if(argv[0]==='sync'){await collect();return {exitCode:0,stdout:'BB collection attempted; inspect source status for coverage.'};}
   if(argv[0]==='status')return {exitCode:0,stdout:JSON.stringify(snapshotSchema.parse(await core('snapshot')))};
-  return {exitCode:0,stdout:'bb work-hub status | sync | add-link <work-id> <url> [url...]'};
+  return {exitCode:0,stdout:'bb work-hub status | sync | create <title> [purpose] | add-link <work-id> <url> [url...]'};
  }});
 
  async function remind(){

@@ -21,6 +21,10 @@ For a specific routine, use the matching bundled skill:
 
 For page sections, sidebar content, agent launch, associations or terminal access, read [the interface reference](references/interface.md). Distinguish focus (priority), work status, commitments, viewed context and the current conversation; changing one does not automatically change the others.
 
+## Create personal work
+
+When asked to save a task for later, search `workIndex` for an existing item. Use `work_hub_create_work` or the `createWork` RPC with `title` and optional `purpose`. Read back `workDetail` with the returned ID. A repeated request with identical text reuses the item. Supply a new `requestId` for a deliberately separate item, and reuse that ID on retries. If local creation fails, report the error. Never substitute a Linear issue for a requested personal Work Hub item.
+
 ## Operations and boundaries
 
 The plugin exposes schema-validated operations through `bb plugin rpc call work-hub METHOD --input-file FILE --json`. Use `bb plugin rpc call --help` for the installed CLI. The detailed routines name only implemented methods. Do not assume an empty RPC discovery listing means a method is absent; discovery metadata can be empty while registered methods remain callable. If an operation is unavailable, report the version mismatch and use the UI; do not bypass it with SQL or invent a command.

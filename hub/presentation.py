@@ -35,6 +35,34 @@ class PresentationMixin:
     def intent(self, work_id):
         return self._record('intent:'+work_id, dict(next_action='', purpose='', project='', thread_id=None, version=0, updated_at=None))
 
+    def create_work(self, title, purpose='', request_id=None):
+        title = work_name(title)
+        if not isinstance(purpose, str) or len(purpose) > 3000:
+            raise ValueError('Purpose must be at most 3000 characters')
+        if request_id is not None and (not isinstance(request_id, str) or not 1 <= len(request_id) <= 100):
+            raise ValueError('Invalid creation request ID')
+        purpose = purpose.strip()
+        payload = fingerprint(title, purpose)
+        wid = fingerprint('standalone work', request_id or payload)
+        key = 'standalone:' + wid
+        with self.db:
+            self.db.execute('BEGIN IMMEDIATE')
+            prior = self._record(key, None)
+            if prior is not None:
+                if prior != payload:
+                    raise ValueError('This creation request already saved different work')
+                return dict(id=wid, created=False)
+            now = time.time()
+            self.db.execute('INSERT INTO work(id,title,updated_at) VALUES (?,?,?)', (wid, title, now))
+            self._put_record(key, payload)
+            self._put_record('work_name:' + wid, dict(version=1, updated_at=now))
+            if purpose:
+                intent = self.intent(wid)
+                intent.update(purpose=purpose, version=1, updated_at=now)
+                self._put_record('intent:' + wid, intent)
+            self.change('work_created', wid, title)
+        return dict(id=wid, created=True)
+
     def rename_work(self, work_id, version, title):
         title=work_name(title)
         if type(version) is not int or version<0:raise ValueError('Invalid name version')
@@ -158,7 +186,7 @@ class PresentationMixin:
 
     def work_index(self, query='', status='all', offset=0):
         if not isinstance(query,str) or len(query)>200 or status not in ('all','active','waiting','done') or type(offset)!=int or not 0<=offset<=100000:raise ValueError('Invalid work search')
-        where="""EXISTS(SELECT 1 FROM work_memberships m WHERE m.work_id=w.id)
+        where="""(EXISTS(SELECT 1 FROM work_memberships m WHERE m.work_id=w.id) OR EXISTS(SELECT 1 FROM meta WHERE key='standalone:'||w.id))
           AND (?='all' OR w.status=?) AND (instr(lower(w.title),lower(?))>0 OR instr(lower(COALESCE(g.names,'')),lower(?))>0
           OR EXISTS(SELECT 1 FROM conversations c JOIN work_memberships m ON m.conversation_id=c.id WHERE m.work_id=w.id AND instr(lower(c.title),lower(?))>0)
           OR EXISTS(SELECT 1 FROM obligations o JOIN work_memberships m ON m.conversation_id=o.conversation_id WHERE m.work_id=w.id AND instr(lower(o.title),lower(?))>0)

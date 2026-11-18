@@ -6,6 +6,9 @@ Work Hub brings related conversations, source evidence, next actions and follow-
 
 **Start here:** [Introduction and videos](docs/videos/README.md) · [Complete setup guide](SETUP.md) · [Copy/paste AI setup prompt](SETUP-PROMPT.md) · [Security and privacy](SECURITY.md)
 
+
+To save a personal task for later, choose **Your work → Create work item**, enter a name and optional purpose, and save. Agents can use `work_hub_create_work` or `bb work-hub create "Title" "Optional purpose"`. The item is searchable immediately and can acquire sources or conversations later.
+
 ## Watch the introduction
 
 [![Watch: What is Work Hub?](docs/videos/overview.png)](docs/videos/overview.mp4)

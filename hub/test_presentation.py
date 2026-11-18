@@ -12,6 +12,35 @@ class PresentationTests(unittest.TestCase):
     def analyze(self,due=None):
         c=self.s.claim_analysis()
         self.s.apply_analysis(c['id'],c['lease_token'],dict(summary='Captured progress',next_action='Model suggestion',obligations=[dict(title='Send checklist',owner='Alex',direction='i_owe',due_at=due,state='open',quote=self.body,confidence=.99)]))
+    def test_standalone_work_is_findable_without_a_source(self):
+        saved = self.s.create_work('Write setup guide', 'Document the setup', 'fixture-request')
+        wid = saved['id']
+        self.assertTrue(saved['created'])
+        detail = self.s.work_detail(wid)['work']
+        self.assertEqual(detail['conversations'], [])
+        self.assertEqual(detail['intent']['purpose'], 'Document the setup')
+        self.assertEqual(self.s.work_index('Write setup guide')['items'][0]['id'], wid)
+        self.assertIn(wid, [w['id'] for w in self.s.snapshot()['work']])
+        self.assertIn(wid, [w['id'] for w in self.s.work_options(self.wid)['options']])
+        self.s.associate(self.wid, wid, 'add')
+        self.s.associate(self.wid, wid, 'remove')
+        self.s.rename_work(wid, detail['title_version'], 'New guide name')
+        self.assertEqual(self.s.create_work('Write setup guide', 'Document the setup', 'fixture-request'),
+                         dict(id=wid, created=False))
+        with self.assertRaises(ValueError):
+            self.s.create_work('Different work', request_id='fixture-request')
+        restored = Store(Path(self.temp.name)/'restored.db')
+        self.addCleanup(restored.close)
+        restored.import_snapshot(self.s.export())
+        self.assertEqual(restored.work_index('New guide name')['items'][0]['id'], wid)
+
+    def test_standalone_creation_retries_without_request_id(self):
+        first = self.s.create_work('Draft checklist')
+        self.assertEqual(self.s.create_work(' Draft checklist '), dict(id=first['id'], created=False))
+        for title, purpose in [('', ''), ('Invalid\ntitle', ''), ('Valid', 'a'*3001)]:
+            with self.assertRaises(ValueError):
+                self.s.create_work(title, purpose)
+
     def test_chosen_intent_survives_later_analysis_and_reopen(self):
         self.s.save_intent(self.wid,0,'Check the boundary',purpose='Safe release',project='Atlas',thread_id='thr_release')
         self.s.ingest('bb',[dict(external_id='thr_release',title='Release',text=self.body,version='v2')]);self.analyze()
