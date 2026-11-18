@@ -21,6 +21,10 @@ For a specific routine, use the matching bundled skill:
 
 For page sections, sidebar content, agent launch, associations or terminal access, read [the interface reference](references/interface.md). Distinguish focus (priority), work status, commitments, viewed context and the current conversation; changing one does not automatically change the others.
 
+## Close out the day
+
+For “close out” or an end-of-day cleanup, use `bb work-hub close-out`, then poll `bb work-hub close-out status` until `running` is false. Check `error` and the report date. Summarize source coverage, duplicate and relationship findings, carryover, open follow-ups and proposed priorities. Distinguish actions the pass applied from candidates awaiting review. The dashboard has the same report under **Finish day**. For a checkpoint on one thread, use `work-hub-checkpoint`.
+
 ## Create personal work
 
 When asked to save a task for later, search `workIndex` for an existing item. Use `work_hub_create_work` or the `createWork` RPC with `title` and optional `purpose`. Read back `workDetail` with the returned ID. A repeated request with identical text reuses the item. Supply a new `requestId` for a deliberately separate item, and reuse that ID on retries. If local creation fails, report the error. Never substitute a Linear issue for a requested personal Work Hub item.

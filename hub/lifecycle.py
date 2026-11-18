@@ -33,7 +33,7 @@ def digest(*parts):return hashlib.sha256(json.dumps(parts,sort_keys=True).encode
 
 
 class LifecycleMixin:
-    def index_references(self, conversation_id):
+    def index_references(self, conversation_id, *, repair=False):
         row=self.db.execute('SELECT c.source,c.url,e.text FROM conversations c LEFT JOIN events e ON e.id=c.latest_event WHERE c.id=?',(conversation_id,)).fetchone()
         if row is None:return
         body=row['text'] or ''
@@ -41,10 +41,17 @@ class LifecycleMixin:
             # A Slack link's label may itself look like a different destination.
             body=re.sub(r'<(https?://[^|<>\s]+)\|[^<>]*>',r'<\1>',slack_messages(body))
         refs=references((row['url'] or '')+'\n'+body)
+        if repair:
+            indexed = {tuple(r) for r in self.db.execute(
+                'SELECT key,url,source FROM source_references WHERE conversation_id=?',(conversation_id,))}
+            if indexed == {(r['key'],r['url'],r['source']) for r in refs}:
+                return False
         self.db.execute('DELETE FROM source_references WHERE conversation_id=?',(conversation_id,))
         for ref in refs:self.db.execute('INSERT OR IGNORE INTO source_references VALUES (?,?,?,?)',(ref['key'],conversation_id,ref['url'],ref['source']))
         if self._record('completion_auto_enabled',False):
             self.db.execute("UPDATE completion_reviews SET state='queued',requested_at=? WHERE state='done' AND obligation_id IN (SELECT o.id FROM obligations o WHERE o.state IN ('open','needs_review') AND (o.conversation_id=? OR o.conversation_id IN (SELECT r.conversation_id FROM source_references r JOIN source_references changed ON r.key=changed.key WHERE changed.conversation_id=?)))",(time.time(),conversation_id,conversation_id))
+
+        return True
 
     def queue_slack_links(self, *, conversation_id=None, thread_id=None, request_key=None):
         # Only expand Slack reads explicitly requested by this thread and still
@@ -147,22 +154,24 @@ class LifecycleMixin:
                 self.queue_slack_links(conversation_id=source_conversation_id,thread_id=claim['thread_id'])
         return True
 
-    def attach_read_source(self, source_conversation_id, destination):
-        # Attach source evidence; never steal its existing primary work or undo manual choices.
-        own=self.db.execute('SELECT work_id FROM conversations WHERE id=?',(source_conversation_id,)).fetchone()
-        if own and own['work_id']!=destination:
-            # Only fold an untouched, standalone source card into the work.
-            standalone=self.db.execute("""
-                SELECT 1 FROM work w WHERE w.id=? AND w.status='active' AND w.focus=0
+    def fold_source_card(self, cid, destination):
+        """Move the primary link only while the source still owns an untouched card."""
+        moved = self.db.execute("""
+            UPDATE conversations SET work_id=? WHERE id=? AND work_id=id AND id<>?
+            AND EXISTS(SELECT 1 FROM work w WHERE w.id=conversations.id AND w.status='active' AND w.focus=0
                 AND NOT EXISTS(SELECT 1 FROM manual_links WHERE conversation_id=w.id)
                 AND NOT EXISTS(SELECT 1 FROM obligations WHERE conversation_id=w.id)
                 AND NOT EXISTS(SELECT 1 FROM work_memberships WHERE work_id=w.id AND conversation_id<>w.id)
                 AND NOT EXISTS(SELECT 1 FROM meta WHERE key IN ('intent:'||w.id,'work_name:'||w.id))
-            """,(source_conversation_id,)).fetchone()
-            if own['work_id']==source_conversation_id and standalone:
-                self.db.execute('UPDATE conversations SET work_id=? WHERE id=?',(destination,source_conversation_id))
-            else:
-                self.db.execute('INSERT OR IGNORE INTO conversation_work_links VALUES (?,?)',(source_conversation_id,destination))
+                AND NOT EXISTS(SELECT 1 FROM meta p,json_each(p.value,'$.work_ids') j
+                               WHERE p.key LIKE 'day_plan:%' AND j.value=w.id))
+        """, (destination,cid,destination))
+        return moved.rowcount == 1
+
+    def attach_read_source(self, source_conversation_id, destination):
+        own=self.db.execute('SELECT work_id FROM conversations WHERE id=?',(source_conversation_id,)).fetchone()
+        if own and own['work_id']!=destination and not self.fold_source_card(source_conversation_id,destination):
+            self.db.execute('INSERT OR IGNORE INTO conversation_work_links VALUES (?,?)',(source_conversation_id,destination))
         self.change('context_ready',destination,'Referenced source context loaded')
 
     def queue_completion(self, scope='unseen', ids=None):

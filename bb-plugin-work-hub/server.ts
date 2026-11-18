@@ -45,6 +45,18 @@ const mutation = z.object({kind:z.enum(['work','obligation','conversation']),id:
 const reviewRow=z.object({obligation_id:z.string(),title:z.string(),state:z.string(),verdict:z.string().nullable(),reason:z.string().nullable(),error:z.string().nullable(),checked_at:z.number().nullable(),commitment_state:z.string(),current_version:z.number(),obligation_version:z.number().nullable(),applied_version:z.number().nullable(),work_id:z.string(),url:z.string(),evidence:z.array(z.object({event_id:z.string(),url:z.string(),quote:z.string(),occurred_at:z.number()}))});
 const reviewPage=z.object({items:z.array(reviewRow),total:z.number(),has_more:z.boolean(),counts:z.record(z.string(),z.number()),budget:z.object({limit:z.number(),used:z.number(),remaining:z.number()})});
 export type CompletionPage=z.infer<typeof reviewPage>;
+const workRef=z.object({id:z.string(),title:z.string()});
+const closeEntry=z.object({work_id:z.string(),title:z.string(),detail:z.string(),url:z.string()});
+const closeSection=z.object({items:z.array(closeEntry),total:z.number()});
+const closeReport=z.object({
+ suggested:z.array(closeEntry),running:closeSection,completed:closeSection,
+ date:z.string(),at:z.number(),repaired:z.number(),related_total:z.number(),related:z.array(z.object({work:workRef,target:workRef,url:z.string()})),folded:z.number(),redundant:z.number(),queued:z.number(),
+ duplicate_groups:z.number(),duplicates:z.array(z.array(workRef)),carryover:z.array(workRef),return_note:z.string(),
+ commitments:z.record(z.string(),z.number()),oldest_overdue:z.array(workRef),relationship_queue:z.record(z.string(),z.number()),
+ coverage:z.array(z.object({source:z.string(),state:z.string(),detail:z.string()})),
+});
+const closeState=z.object({running:z.boolean(),error:z.string(),report:closeReport.nullable(),nightly:z.boolean()});
+export type CloseState=z.infer<typeof closeState>;
 const createWorkInput = z.object({
  title: z.string().max(1000).refine(value => !workNameError(value), 'Use a single-line work name of 1–200 characters'),
  purpose: z.string().max(3000).optional(),
@@ -62,6 +74,8 @@ export const rpcContract = defineRpcContract({
  snapshot:{input:z.null(),output:snapshotSchema},
  workDetail:{input:z.object({workId:z.string().max(100)}),output:workDetail},
  workIndex:{input:z.object({query:z.string().max(200),status:z.enum(['all','active','waiting','done']),offset:z.number().int().min(0).max(100000)}),output:workIndex},
+ closeOut:{input:z.null(),output:z.object({started:z.boolean()})},
+ closeOutStatus:{input:z.null(),output:closeState},
  createWork:{input:createWorkInput,output:createdWork},
  renameWork:{input:z.object({workId:z.string().max(100),threadId:z.string().startsWith('thr_').max(100).optional(),version:z.number().int().nonnegative(),title:z.string().max(1000).refine(value=>!workNameError(value),'Use a single-line work name of 1–200 characters')}),output:z.object({title:z.string(),title_version:z.number().int().nonnegative(),thread_error:z.string().optional()})},
  saveIntent:{input:z.object({workId:z.string().max(100),version:z.number().int().nonnegative(),next_action:z.string().max(1500),purpose:z.string().max(3000),project:z.string().max(120),thread_id:z.string().nullable()}),output:intent},
@@ -90,6 +104,7 @@ export default async function plugin(bb:BbPluginApi) {
   storageBackend:{type:'string',label:'Storage backend (bb or json; blank inherits environment)',default:''},
   storageProfile:{type:'string',label:'Encrypted storage profile (blank uses default/environment)',default:''},
   storageFile:{type:'string',label:'Optional absolute JSON override path (contains private data)',default:''},
+  nightlyCloseOut:{type:'boolean',label:'Deep close-out nightly at 10 pm in the Work Hub timezone',default:false},
   remindersEnabled:{type:'boolean',label:'Grouped due follow-up reminders (weekdays 9–18, max 3/day)',default:false},
  });
  const config=await settings.get();
@@ -213,7 +228,33 @@ export default async function plugin(bb:BbPluginApi) {
   parameters:createWorkInput,
   async execute(args){return JSON.stringify(await createWork(args))}
  });
+ let closing:Promise<void>|null=null;
+ let closeError='';
+ function startCloseOut(scheduled=false){
+  if(closing)return {started:false};
+  closeError='';
+  closing=(async()=>{
+   await collect();
+   await core('close_out',{bb_enabled:config.collectThreads,expand_links:config.autoContext&&config.collectThreads,scheduled},1800000);
+   bb.realtime.publish('changed',{});
+  })().catch(()=>{closeError='Close-out was interrupted. Check source coverage and retry.'})
+      .finally(()=>{closing=null});
+  return {started:true};
+ }
+ async function closeOutStatus(){
+  const report=closeReport.nullable().parse(await core('close_out_status'));
+  return {running:!!closing,error:closeError,report,nightly:config.nightlyCloseOut};
+ }
+ if(config.nightlyCloseOut)bb.background.service('nightly-close-out',{async start(signal){
+  while(!signal.aborted){
+   try{if(!closing && await core('close_out_due'))startCloseOut(true)}
+   catch{bb.log.warn('Nightly close-out check unavailable; will retry')}
+   try{await delay(300000,undefined,{signal})}catch{break}
+  }
+ }});
  bb.rpc.register(rpcContract,{
+  closeOut:async()=>startCloseOut(),
+  closeOutStatus,
   createWork,
   legacyPage:async args=>legacyPage.parse(await core('legacy_page',args)),
   keepLegacy:async args=>{const result=z.object({ok:z.boolean()}).parse(await core('keep_legacy',args));bb.realtime.publish('changed',{});return result},
@@ -256,7 +297,7 @@ export default async function plugin(bb:BbPluginApi) {
   },
   acknowledge:async(args)=>{await core('acknowledge',args);bb.realtime.publish('changed',{});return {ok:true};},
  });
- bb.cli.register({name:'work-hub',summary:'Read the portable work register and source coverage',commands:[{name:'create',summary:'Create a standalone personal work item',usage:'bb work-hub create <title> [purpose]'},{name:'morning',summary:'Run or inspect the guided checks from today’s morning thread',usage:'bb work-hub morning [--wait] [--refresh RUN_ID] [phase] [offset]'},{name:'add-link',summary:'Attach source URLs to a work item',usage:'bb work-hub add-link <work-id> <url> [url...]'},{name:'status',summary:'Work and coverage as JSON',usage:'bb work-hub status'},{name:'sync',summary:'Reconcile recent BB conversations',usage:'bb work-hub sync'}],async run(argv,ctx){
+ bb.cli.register({name:'work-hub',summary:'Read the portable work register and source coverage',commands:[{name:'close-out',summary:'Run deep local reconciliation or read its last report',usage:'bb work-hub close-out [status]'},{name:'create',summary:'Create a standalone personal work item',usage:'bb work-hub create <title> [purpose]'},{name:'morning',summary:'Run or inspect the guided checks from today’s morning thread',usage:'bb work-hub morning [--wait] [--refresh RUN_ID] [phase] [offset]'},{name:'add-link',summary:'Attach source URLs to a work item',usage:'bb work-hub add-link <work-id> <url> [url...]'},{name:'status',summary:'Work and coverage as JSON',usage:'bb work-hub status'},{name:'sync',summary:'Reconcile recent BB conversations',usage:'bb work-hub sync'}],async run(argv,ctx){
   if(argv[0]==='morning'){
    const threadId=ctx.threadId;
    if(!threadId)return {exitCode:1,stdout:'Run from today’s morning thread with the work_hub_morning tool.'};
@@ -266,6 +307,11 @@ export default async function plugin(bb:BbPluginApi) {
    const [phase,start]=rest;
    const offset=start===undefined?0:z.coerce.number().int().nonnegative().parse(start);
    return {exitCode:0,stdout:JSON.stringify(await planning.report(threadId,{wait:argv.includes('--wait'),refreshRunId,phase,offset}))};
+  }
+  if(argv[0]==='close-out'){
+   if(argv.length===1)return {exitCode:0,stdout:JSON.stringify(startCloseOut())};
+   if(argv.length===2&&argv[1]==='status')return {exitCode:0,stdout:JSON.stringify(await closeOutStatus())};
+   return {exitCode:1,stdout:'Usage: bb work-hub close-out [status]'};
   }
   if(argv[0]==='create'){
    if(argv.length<2||argv.length>3)return {exitCode:1,stdout:'Usage: bb work-hub create <title> [purpose]'};
@@ -284,7 +330,7 @@ export default async function plugin(bb:BbPluginApi) {
   }
   if(argv[0]==='sync'){await collect();return {exitCode:0,stdout:'BB collection attempted; inspect source status for coverage.'};}
   if(argv[0]==='status')return {exitCode:0,stdout:JSON.stringify(snapshotSchema.parse(await core('snapshot')))};
-  return {exitCode:0,stdout:'bb work-hub status | sync | create <title> [purpose] | add-link <work-id> <url> [url...]'};
+  return {exitCode:0,stdout:'bb work-hub status | sync | close-out [status] | create <title> [purpose] | add-link <work-id> <url> [url...]'};
  }});
 
  async function remind(){

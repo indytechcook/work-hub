@@ -13,6 +13,15 @@ def main():
     op=request.get('op');args=request.get('args',{})
     if not isinstance(args,dict):raise ValueError('Expected arguments object')
     methods={'create_work','record_thread_name','rename_work','configure_tracking','legacy_page','keep_legacy','save_handoff','acknowledge_changes','save_intent','save_day_plan','acknowledge_attention','work_detail','work_index','associate','work_options','thread_context','snapshot','ingest','source_failure','claim_analysis','apply_analysis','analysis_failed','mutate','acknowledge','export','claim_reminder','reminder_payload','finish_reminder','import_snapshot','register_agent_thread','ensure_context','context_packet','queue_completion','completion_page','resolve_completion'}
+    if op in ('close_out','close_out_status','close_out_due'):
+        from closeout import run, nightly_due
+        store=Store(STATE/'work.db')
+        try:
+            if op=='close_out': result=run(store,**args)
+            elif op=='close_out_due': result=nightly_due(store)
+            else: result=store._record('closeout:last',None)
+        finally: store.close()
+        print(json.dumps({'ok':True,'result':result}));return
     if op in ('morning_targets','morning_links','morning_step','morning_context','record_morning_thread','last_morning_result','save_morning_result'):
         from morning import morning_targets,verify_links,morning_context,record_morning_thread,last_morning_result,save_morning_result
         from morning_checks import run_step

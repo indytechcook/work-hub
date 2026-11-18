@@ -41,3 +41,11 @@ Source windows and caps still apply. Drive supplies metadata, meeting notes can 
 The morning thread prepares decisions and drafts. Sending messages or standups, launching review or fix agents, merging or deploying, changing a checkout and removing worktrees are separate actions. Retired tracking issues, agent-run mirrors, and listener triggers are excluded from the routine.
 
 The original command proceeds from refresh and briefing to dispatch, human decisions and close-out. Work Hub opens the interactive thread at refresh, guides the decisions, and uses its editable plan and return notes for personal tracking. The weekday standup is prepared during the checks and reviewed after priorities are chosen. The existing **Finish day** action remains available for close-out.
+
+## Deep close-out
+
+Open **Finish day → Run close-out**, or run `bb work-hub close-out`. Read the saved report in Finish day or with `bb work-hub close-out status`. **Edit return note** opens the existing day editor. Start Morning includes the latest close-out in its briefing.
+
+The pass syncs opted-in sources with their normal windows and locks, reuses scans less than ten minutes old, repairs canonical reference indexes, requeues missing reads from explicitly attached Slack links and removes redundant memberships. A source card can be consolidated when it already belongs to one other item, its primary card is untouched, and saved plans and explicit association choices are preserved. Matching titles and possible relationships from PR or issue links appear for review. The report also includes source gaps, unfinished planned work, the saved return note, overdue follow-ups, recent completions, captured running conversations and up to three suggested priorities. The report uses current captured evidence. Human decisions, external actions and worktree cleanup are separate.
+
+Enable the plugin setting **nightlyCloseOut** to run at 10 pm in the configured Work Hub timezone. BB checks every five minutes and catches up the most recent missed night after waking. A successful reconciliation with partial source coverage is recorded with its gaps. Run again on demand after correcting a connector. The nightly setting defaults to off.

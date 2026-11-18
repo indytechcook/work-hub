@@ -397,7 +397,7 @@ def brief(store, bb_enabled, now=None):
         "Stale commitments": "Waiting obligations last updated at least seven days ago.",
         "Overdue": "Open commitments past their local due date, oldest first.",
     }
-    return [
+    sections = [
         section(
             label,
             groups[label],
@@ -421,6 +421,15 @@ def brief(store, bb_enabled, now=None):
             "Recent arrivals",
         )
     ]
+    closeout = store._record("closeout:last", None)
+    if closeout:
+        gaps = [s["source"] for s in closeout["coverage"] if s["state"] != "checked"]
+        sections.append(section("Last deep close-out",
+            [item(w["title"], work_id=w["id"]) for w in closeout["carryover"]],
+            f"{closeout['date']}: {closeout['folded']} duplicate cards consolidated, "
+            f"{closeout['duplicate_groups']} possible duplicate groups, {closeout['related_total']} related pairs for review. "
+            f"Coverage gaps: {', '.join(gaps) or 'none reported'}."))
+    return sections
 
 
 def morning_targets(store, bb_enabled):
