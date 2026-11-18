@@ -94,6 +94,42 @@ def refresh_reference(store, url, project_id=None):
         raise
 
 
+def add_source_link(store, work_id, url):
+    if not store.db.execute('SELECT 1 FROM work WHERE id=?',(work_id,)).fetchone():
+        raise ValueError('Unknown work item')
+    ref=reference(url)
+    if not ref or ref['source'] not in ('slack','github','linear'):
+        raise ValueError('Use a Slack message, GitHub issue or PR, or Linear issue URL')
+    check_source_scope(ref)
+    # A mention in another source is not itself the requested source.
+    captured=None
+    for row in store.db.execute('SELECT c.id,c.url FROM conversations c JOIN source_references r ON c.id=r.conversation_id WHERE r.key=? AND c.source=?',(ref['key'],ref['source'])):
+        own=reference(row['url'])
+        if own and own['key']==ref['key']:
+            captured=row
+            break
+    try:
+        cid=captured['id'] if captured else refresh_reference(store,ref['url'])
+    except (RuntimeError,OSError,subprocess.TimeoutExpired,ValueError) as error:
+        raise ValueError('Could not read this link. Check source access and retry.') from error
+    with store.db:
+        store.db.execute('BEGIN IMMEDIATE')
+        already=work_id in store._work_ids(cid)
+        if not already:
+            if captured:
+                # Explicit attachment of existing work is additive.
+                store.db.execute('INSERT OR IGNORE INTO conversation_work_links VALUES (?,?)',(cid,work_id))
+                store.change('association',cid,'add: '+work_id)
+            else:
+                store.attach_read_source(cid,work_id)
+        if ref['source']=='slack':
+            scope='work:'+work_id
+            store.db.execute("""INSERT OR IGNORE INTO context_requests(thread_id,reference_key,url,state,updated_at)
+                VALUES (?,?,?,'ready',?)""",(scope,ref['key'],ref['url'],time.time()))
+            store.queue_slack_links(conversation_id=cid,thread_id=scope)
+    return {'state':'already_linked' if already else 'added'}
+
+
 def hydrate_context(store, thread_id=None, limit=1):
     for _ in range(min(limit,3)):
         claim=store.claim_context(thread_id)

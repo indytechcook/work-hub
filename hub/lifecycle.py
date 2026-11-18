@@ -16,10 +16,10 @@ CREATE TABLE IF NOT EXISTS completion_reviews(obligation_id TEXT PRIMARY KEY,sta
 CREATE TABLE IF NOT EXISTS completion_audit(id INTEGER PRIMARY KEY,obligation_id TEXT NOT NULL,verdict TEXT NOT NULL,reason TEXT NOT NULL,evidence TEXT NOT NULL,checked_at REAL NOT NULL,obligation_version INTEGER NOT NULL);
 '''
 SLACK_LINKS="""
-SELECT q.thread_id,b.work_id,r.key,r.url
+SELECT q.thread_id,m.work_id,r.key,r.url
 FROM context_requests q
-JOIN conversations b ON b.source='bb' AND b.external_id=q.thread_id
-JOIN work_memberships m ON m.work_id=b.work_id
+LEFT JOIN conversations b ON b.source='bb' AND b.external_id=q.thread_id
+JOIN work_memberships m ON m.work_id=CASE WHEN q.thread_id LIKE 'work:%' THEN substr(q.thread_id,6) ELSE b.work_id END
 JOIN conversations s ON s.id=m.conversation_id AND s.source='slack'
 LEFT JOIN meta cache ON cache.key='source_read:' || q.reference_key
 JOIN source_references r ON r.conversation_id=s.id AND r.source IN ('linear','github')
@@ -60,7 +60,7 @@ class LifecycleMixin:
     def _discard_stale_slack_request(self, request):
         if request['slack_work_id'] is None:return False
         match=self.db.execute(SLACK_LINKS + """
-            AND b.work_id=? AND q.thread_id=? AND r.key=? LIMIT 1
+            AND m.work_id=? AND q.thread_id=? AND r.key=? LIMIT 1
         """,(request['slack_work_id'],request['thread_id'],request['reference_key'])).fetchone()
         if match:return False
         self.db.execute('DELETE FROM context_requests WHERE thread_id=? AND reference_key=?',
@@ -138,28 +138,32 @@ class LifecycleMixin:
             row=self.db.execute('SELECT * FROM context_requests WHERE thread_id=? AND reference_key=? AND lease_token=?',(claim['thread_id'],claim['reference_key'],claim['lease_token'])).fetchone()
             if not row or self._discard_stale_slack_request(row):return False
             current=self.db.execute("SELECT work_id FROM conversations WHERE source='bb' AND external_id=?",(claim['thread_id'],)).fetchone()
+            if claim['thread_id'].startswith('work:'):
+                current=self.db.execute('SELECT id work_id FROM work WHERE id=?',(claim['thread_id'][5:],)).fetchone()
             if current and source_conversation_id:
-                # Attach source evidence; never steal its existing primary work or undo manual choices.
-                own=self.db.execute('SELECT work_id FROM conversations WHERE id=?',(source_conversation_id,)).fetchone()
-                destination=current['work_id']
-                if own and own['work_id']!=destination:
-                    # Only fold an untouched, standalone source card into the work.
-                    standalone=self.db.execute("""
-                        SELECT 1 FROM work w WHERE w.id=? AND w.status='active' AND w.focus=0
-                        AND NOT EXISTS(SELECT 1 FROM manual_links WHERE conversation_id=w.id)
-                        AND NOT EXISTS(SELECT 1 FROM obligations WHERE conversation_id=w.id)
-                        AND NOT EXISTS(SELECT 1 FROM work_memberships WHERE work_id=w.id AND conversation_id<>w.id)
-                        AND NOT EXISTS(SELECT 1 FROM meta WHERE key IN ('intent:'||w.id,'work_name:'||w.id))
-                    """,(source_conversation_id,)).fetchone()
-                    if own['work_id']==source_conversation_id and standalone:
-                        self.db.execute('UPDATE conversations SET work_id=? WHERE id=?',(destination,source_conversation_id))
-                    else:
-                        self.db.execute('INSERT OR IGNORE INTO conversation_work_links VALUES (?,?)',(source_conversation_id,destination))
-                self.change('context_ready',current['work_id'],'Referenced source context loaded')
+                self.attach_read_source(source_conversation_id,current['work_id'])
             self.db.execute('UPDATE context_requests SET state=?,error=?,updated_at=?,lease_token=NULL,lease_until=NULL WHERE thread_id=? AND reference_key=?',('error' if error else 'ready',error,time.time(),claim['thread_id'],claim['reference_key']))
             if source_conversation_id and not error and claim['reference_key'].startswith('slack:'):
                 self.queue_slack_links(conversation_id=source_conversation_id,thread_id=claim['thread_id'])
         return True
+
+    def attach_read_source(self, source_conversation_id, destination):
+        # Attach source evidence; never steal its existing primary work or undo manual choices.
+        own=self.db.execute('SELECT work_id FROM conversations WHERE id=?',(source_conversation_id,)).fetchone()
+        if own and own['work_id']!=destination:
+            # Only fold an untouched, standalone source card into the work.
+            standalone=self.db.execute("""
+                SELECT 1 FROM work w WHERE w.id=? AND w.status='active' AND w.focus=0
+                AND NOT EXISTS(SELECT 1 FROM manual_links WHERE conversation_id=w.id)
+                AND NOT EXISTS(SELECT 1 FROM obligations WHERE conversation_id=w.id)
+                AND NOT EXISTS(SELECT 1 FROM work_memberships WHERE work_id=w.id AND conversation_id<>w.id)
+                AND NOT EXISTS(SELECT 1 FROM meta WHERE key IN ('intent:'||w.id,'work_name:'||w.id))
+            """,(source_conversation_id,)).fetchone()
+            if own['work_id']==source_conversation_id and standalone:
+                self.db.execute('UPDATE conversations SET work_id=? WHERE id=?',(destination,source_conversation_id))
+            else:
+                self.db.execute('INSERT OR IGNORE INTO conversation_work_links VALUES (?,?)',(source_conversation_id,destination))
+        self.change('context_ready',destination,'Referenced source context loaded')
 
     def queue_completion(self, scope='unseen', ids=None):
         if scope not in ('unseen','open','selected'):raise ValueError('Unknown review scope')

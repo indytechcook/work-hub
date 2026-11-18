@@ -37,6 +37,8 @@ export type WorkOptions=z.infer<typeof workOptionsSchema>;
 const threadContextSchema=z.object({associated_work:z.array(workOption),work:work.nullable(),obligations:z.array(obligation),now:z.number()});
 export type ThreadContext=z.infer<typeof threadContextSchema>;
 export type Snapshot = z.infer<typeof snapshotSchema>;
+const sourceLinkInput=z.object({workId:z.string().min(1).max(100),url:z.string().min(1).max(2048)});
+const sourceLinkResult=z.object({state:z.enum(['added','already_linked'])});
 const mutation = z.object({kind:z.enum(['work','obligation','conversation']),id:z.string().max(100),action:z.enum(['focus','unfocus','active','waiting','done','open','fulfilled','cancelled','link']),version:z.number().optional(),value:z.string().optional()});
 const reviewRow=z.object({obligation_id:z.string(),title:z.string(),state:z.string(),verdict:z.string().nullable(),reason:z.string().nullable(),error:z.string().nullable(),checked_at:z.number().nullable(),commitment_state:z.string(),current_version:z.number(),obligation_version:z.number().nullable(),applied_version:z.number().nullable(),work_id:z.string(),url:z.string(),evidence:z.array(z.object({event_id:z.string(),url:z.string(),quote:z.string(),occurred_at:z.number()}))});
 const reviewPage=z.object({items:z.array(reviewRow),total:z.number(),has_more:z.boolean(),counts:z.record(z.string(),z.number()),budget:z.object({limit:z.number(),used:z.number(),remaining:z.number()})});
@@ -56,6 +58,7 @@ export const rpcContract = defineRpcContract({
  saveDayPlan:{input:z.object({date:z.string(),version:z.number().int().nonnegative(),work_ids:z.array(z.string()).max(12),note:z.string().max(3000)}),output:dayPlan},
  acknowledgeAttention:{input:z.object({tokens:z.array(z.string().length(32)).max(100)}),output:z.object({ok:z.boolean()})},
  workOptions:{input:z.object({conversationId:z.string().max(100),query:z.string().max(200)}),output:workOptionsSchema},
+ addSourceLink:{input:sourceLinkInput,output:sourceLinkResult},
  associate:{input:z.object({conversationId:z.string().max(100),workId:z.string().max(100),action:z.enum(['add','remove'])}),output:z.object({ok:z.boolean()})},
  threadContext:{input:z.object({threadId:z.string().startsWith('thr_').max(100),workId:z.string().max(100).optional()}),output:threadContextSchema},
  prepareLaunch:{input:z.object({workId:z.string().max(100),obligationId:z.string().max(100).optional()}),output:z.object({title:z.string(),prompt:z.string(),parentThreadId:z.string().nullable(),projectId:z.string().nullable()})},
@@ -161,6 +164,12 @@ export default async function plugin(bb:BbPluginApi) {
   threads:{get:args=>bb.sdk.threads.get(args),update:args=>bb.sdk.threads.update(args)},
   changed:()=>bb.realtime.publish('changed',{}),
  });
+ async function addSourceLink(input:z.infer<typeof sourceLinkInput>){
+  const {workId,url}=sourceLinkInput.parse(input);
+  const result=sourceLinkResult.parse(await core('add_source_link',{work_id:workId,url},100000));
+  bb.realtime.publish('changed',{});
+  return result;
+ }
  bb.rpc.register(rpcContract,{
   legacyPage:async args=>legacyPage.parse(await core('legacy_page',args)),
   keepLegacy:async args=>{const result=z.object({ok:z.boolean()}).parse(await core('keep_legacy',args));bb.realtime.publish('changed',{});return result},
@@ -179,6 +188,7 @@ export default async function plugin(bb:BbPluginApi) {
   trackThread:async({threadId})=>{const result=await trackThread(threadId);bb.realtime.publish('changed',{});return result;},
   threadContext:async({threadId,workId})=>threadContextSchema.parse(await core('thread_context',{thread_id:threadId,...(workId?{work_id:workId}:{})})),
   workOptions:async({conversationId,query})=>workOptionsSchema.parse(await core('work_options',{conversation_id:conversationId,query})),
+  addSourceLink,
   associate:async({conversationId,workId,action})=>{const result=z.object({ok:z.boolean()}).parse(await core('associate',{conversation_id:conversationId,work_id:workId,action}));bb.realtime.publish('changed',{});return result;},
   workDetail:async({workId})=>workDetail.parse(await core('work_detail',{work_id:workId})),
   workIndex:async args=>workIndex.parse(await core('work_index',args)),
@@ -200,10 +210,21 @@ export default async function plugin(bb:BbPluginApi) {
   },
   acknowledge:async(args)=>{await core('acknowledge',args);bb.realtime.publish('changed',{});return {ok:true};},
  });
- bb.cli.register({name:'work-hub',summary:'Read the portable work register and source coverage',commands:[{name:'status',summary:'Work and coverage as JSON',usage:'bb work-hub status'},{name:'sync',summary:'Reconcile recent BB conversations',usage:'bb work-hub sync'}],async run(argv){
+ bb.cli.register({name:'work-hub',summary:'Read the portable work register and source coverage',commands:[{name:'add-link',summary:'Attach source URLs to a work item',usage:'bb work-hub add-link <work-id> <url> [url...]'},{name:'status',summary:'Work and coverage as JSON',usage:'bb work-hub status'},{name:'sync',summary:'Reconcile recent BB conversations',usage:'bb work-hub sync'}],async run(argv){
+  if(argv[0]==='add-link'){
+   const [,workId,...urls]=argv;
+   if(!workId||!urls.length||urls.length>20)return {exitCode:1,stdout:'Usage: bb work-hub add-link <work-id> <url> [url...] (up to 20 links)'};
+   const lines:string[]=[];
+   let failed=false;
+   for(const url of urls){
+    try{const result=await addSourceLink({workId,url});lines.push(result.state==='added'?'Added':'Already linked');}
+    catch(error){failed=true;lines.push(error instanceof Error?error.message:'Could not attach link');}
+   }
+   return {exitCode:failed?1:0,stdout:lines.map((message,i)=>`Link ${i+1}: ${message}`).join('\n')};
+  }
   if(argv[0]==='sync'){await collect();return {exitCode:0,stdout:'BB collection attempted; inspect source status for coverage.'};}
   if(argv[0]==='status')return {exitCode:0,stdout:JSON.stringify(snapshotSchema.parse(await core('snapshot')))};
-  return {exitCode:0,stdout:'bb work-hub status | sync'};
+  return {exitCode:0,stdout:'bb work-hub status | sync | add-link <work-id> <url> [url...]'};
  }});
 
  async function remind(){

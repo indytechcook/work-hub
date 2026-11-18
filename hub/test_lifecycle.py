@@ -8,7 +8,7 @@ from test_support import isolate_storage
 from store import Store,digest
 from references import reference,references
 from completion import once
-from source_reads import hydrate_context, refresh_reference
+from source_reads import add_source_link, hydrate_context, refresh_reference
 
 SLACK='https://example.slack.com/archives/C123/p1794900000000000'
 PR='https://github.com/example/project/pull/12'
@@ -33,6 +33,26 @@ class LifecycleTests(unittest.TestCase):
         with patch('completion.refresh_reference'),patch('completion.identity',return_value={'name':'Sam','email':'sam@example.com','timezone':'UTC'}),patch('completion.run',return_value=result) as model:
             response=once(self.s)
         return response,model
+    def test_add_links_to_selected_work_without_a_bb_thread(self):
+        work=self.source('github',PR,body='Destination')
+        first=self.source(body='First message')
+        second_url='https://example.slack.com/archives/C999/p1794900000000000'
+        related='https://github.com/example/project/pull/14'
+        def read(ref,project_id):
+            return dict(external_id='other',title='Other',text=related if ref['source']=='slack' else 'PR',url=ref['url'])
+        with patch('source_reads.selected_sources',return_value=['slack','github']),patch('source_reads.slack_settings',return_value={'workspace_url':'https://example.slack.com'}),patch('source_reads.read_reference',side_effect=read):
+            self.assertEqual(add_source_link(self.s,work,SLACK)['state'],'added')
+            self.assertEqual(add_source_link(self.s,work,second_url)['state'],'added')
+            self.assertEqual(add_source_link(self.s,work,SLACK)['state'],'already_linked')
+            hydrate_context(self.s,limit=3)
+            self.assertCountEqual(self.s._work_ids(first),[first,work])
+            urls=[c['url'] for c in self.s.work_detail(work)['work']['conversations']]
+            self.assertCountEqual(urls,[PR,SLACK,second_url,related])
+            with self.assertRaisesRegex(ValueError,'workspace'):add_source_link(self.s,work,SLACK.replace('example.slack','another.slack'))
+            with self.assertRaisesRegex(ValueError,'Use a Slack'):add_source_link(self.s,work,'https://unsupported.example/')
+        with patch('source_reads.selected_sources',return_value=[]):
+            with self.assertRaisesRegex(ValueError,'not enabled'):add_source_link(self.s,work,SLACK)
+
     def test_exact_source_match_connects_new_thread_without_duplicate_work(self):
         cid=self.source();n=self.s.db.execute('SELECT count(*) FROM work').fetchone()[0]
         p=self.s.ensure_context('thr_new','Start work','Please do this '+SLACK)

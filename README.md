@@ -25,6 +25,8 @@ Start with the 77-second overview, then explore [nine short workflow walkthrough
 
 [Automatic context and completion review](docs/work-lifecycle.md) connects new conversations to their sources and checks whether commitments are already fulfilled.
 
+Choose **Add links** beside a work item's title in the dashboard or thread sidebar. Paste Slack message, GitHub issue or pull request, or Linear issue URLs and choose **Attach links**. Each result reports whether the source was added, already linked, or could not be read. From an agent or terminal, use `bb work-hub add-link <work-id> '<url>' ['<url>' ...]` with the selected Work Hub ID from `contextPacket` or `workIndex`.
+
 Open a work item and choose **Rename work** beneath its title, in either Work Hub or a thread’s **Work context** sidebar. Enter a name and **Save name**, or **Cancel** to discard it. Names are 1–200 characters; competing edits require reloading the saved name before retrying. To give an attached BB thread the same name, check **Also rename a BB thread** and choose the thread, then **Save both names**. Other source titles and evidence remain separate.
 
 ## Daily workflow skills
