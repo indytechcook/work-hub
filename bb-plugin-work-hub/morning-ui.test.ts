@@ -46,6 +46,7 @@ s.close()`;
   let meta={},spawns=0;
   host=createFakePluginHost({pluginId:'work-hub',settings:{hubPath:root,pythonPath:python,collectThreads:true,storageFile:cfg,storageBackend:'json'},sdk:{threads:{list:async()=>[],get:async()=>thread,getPluginMetadata:async()=>meta,spawn:async args=>{
     spawns++;meta=args.pluginMetadata??{};assert.equal(args.projectId,'proj_fixture');assert.match(String(args.prompt),/one question at a time/);
+    assert.match(String(args.prompt),/work_hub_morning_question/);
     return thread;
   }}}});
   await plugin(host.bb);
@@ -70,6 +71,31 @@ s.close()`;
   assert.equal(first.finished,true);
   assert.ok(first.phases.find((p:any)=>p.key==='slack').sections.some((s:any)=>s.state==='skipped'));
   assert.ok(first.phases[0].sections[0].items.some((i:any)=>i.title==='Review release checklist'));
+  const args={question:'Which plan should we use?',choices:['Save this plan','Keep current plan']};
+  const pending=tool('work_hub_morning_question',args);
+  const pendingCard=async()=>{
+   await waitFor(()=>assert.equal(host!.harness.inspection.pendingInteractions.length,1));
+   return host!.harness.inspection.pendingInteractions[0];
+  };
+  const card=await pendingCard();
+  const form=renderSlot(app.pendingInteractions.find(r=>r.id===card.rendererId)!,{
+   interaction:{...card,createdAt:Date.now(),expiresAt:null,title:'Morning plan'},
+   submit:async(value:string)=>host!.harness.behavior.submitInteraction(card.id,value),
+   cancel:async()=>host!.harness.behavior.cancelInteraction(card.id),
+  });
+  try{
+   const field=await screen.findByRole('group',{name:args.question});
+   assert.equal(within(field).queryByRole('textbox'),null);
+   fireEvent.click(within(field).getByRole('button',{name:'Save this plan'}));
+   assert.equal(JSON.parse(String(await pending)).choice,'Save this plan');
+  }finally{form.lifecycle.unmount()}
+  const cancelled=tool('work_hub_morning_question',args);
+  host.harness.behavior.cancelInteraction((await pendingCard()).id);
+  assert.equal(JSON.parse(String(await cancelled)).outcome,'cancelled');
+  const forged=tool('work_hub_morning_question',args);
+  host.harness.behavior.submitInteraction((await pendingCard()).id,'Unlisted answer');
+  await assert.rejects(forged,/Invalid planning choice/);
+  assert.equal((await call('snapshot',null)).today.version,saved.today.version);
   await tool('work_hub_morning_plan',{version:saved.today.version,work_ids:[wid],note:saved.today.note});
   await assert.rejects(()=>tool('work_hub_morning_plan',{version:saved.today.version,work_ids:[],note:'Stale change'}));
   fireEvent.click(screen.getByRole('button',{name:'Edit today’s plan'}));

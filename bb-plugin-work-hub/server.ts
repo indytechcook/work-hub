@@ -297,10 +297,14 @@ export default async function plugin(bb:BbPluginApi) {
   },
   acknowledge:async(args)=>{await core('acknowledge',args);bb.realtime.publish('changed',{});return {ok:true};},
  });
- bb.cli.register({name:'work-hub',summary:'Read the portable work register and source coverage',commands:[{name:'close-out',summary:'Run deep local reconciliation or read its last report',usage:'bb work-hub close-out [status]'},{name:'create',summary:'Create a standalone personal work item',usage:'bb work-hub create <title> [purpose]'},{name:'morning',summary:'Run or inspect the guided checks from today’s morning thread',usage:'bb work-hub morning [--wait] [--refresh RUN_ID] [phase] [offset]'},{name:'add-link',summary:'Attach source URLs to a work item',usage:'bb work-hub add-link <work-id> <url> [url...]'},{name:'status',summary:'Work and coverage as JSON',usage:'bb work-hub status'},{name:'sync',summary:'Reconcile recent BB conversations',usage:'bb work-hub sync'}],async run(argv,ctx){
+ bb.cli.register({name:'work-hub',summary:'Read the portable work register and source coverage',commands:[{name:'close-out',summary:'Run deep local reconciliation or read its last report',usage:'bb work-hub close-out [status]'},{name:'create',summary:'Create a standalone personal work item',usage:'bb work-hub create <title> [purpose]'},{name:'morning',summary:'Run or inspect the guided checks from today’s morning thread',usage:'bb work-hub morning [--wait] [--refresh RUN_ID] [phase] [offset] | morning ask <question> <choice> <choice> [...]'},{name:'add-link',summary:'Attach source URLs to a work item',usage:'bb work-hub add-link <work-id> <url> [url...]'},{name:'status',summary:'Work and coverage as JSON',usage:'bb work-hub status'},{name:'sync',summary:'Reconcile recent BB conversations',usage:'bb work-hub sync'}],async run(argv,ctx){
   if(argv[0]==='morning'){
    const threadId=ctx.threadId;
    if(!threadId)return {exitCode:1,stdout:'Run from today’s morning thread with the work_hub_morning tool.'};
+   if(argv[1]==='ask'){
+    const [,,question,...choices]=argv;
+    return {exitCode:0,stdout:JSON.stringify(await planning.ask(threadId,{question,choices},ctx.signal))};
+   }
    const rest=argv.slice(1).filter(arg=>arg!=='--wait');
    const flag=rest.indexOf('--refresh');
    const refreshRunId=flag<0?undefined:z.string().uuid().parse(rest.splice(flag,2)[1]);
