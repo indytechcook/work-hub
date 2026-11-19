@@ -198,7 +198,7 @@ export default async function plugin(bb:BbPluginApi) {
  async function beginMorning(date:string,scope:string,previousId?:string){
   restored??=core('last_morning_result').then(value=>morning.restore(value)).catch(()=>{restored=undefined});
   await restored;
-  return morning.start(date,scope+String(config.collectThreads),previousId);
+  return morning.start(date,scope+String(config.collectThreads)+':decisions-v1',previousId);
  }
  bb.onDispose(()=>morning.dispose());
  const planning=morningThreads(bb,core,{start:beginMorning});

@@ -39,3 +39,19 @@ test('reuse a finished morning across restart, invalidate changed permissions, a
  next.dispose();
  original.dispose();
 });
+
+import {morningDecisions} from './morning-decisions';
+
+test('a large morning queue yields one lead and one review while retaining drill-down',()=>{
+ const entries=Array.from({length:150},(_,i)=>({work_id:String(i),title:'Action '+i,detail:'Due today',url:''}));
+ const section={label:'Suggested actions',state:'checked' as const,total:150,detail:'',items:entries};
+ const run:MorningRun={schemaVersion:1,id:'run',date:'2026-01-01',scope:'fixture',started:0,finished:true,phases:[
+  {key:'brief',label:'Brief',state:'finished',sections:[section]},
+  {key:'prs',label:'PRs',state:'finished',sections:[{...section,label:'Review candidates',items:entries.slice(0,15)}]},
+ ]};
+ const brief=morningDecisions(run,[{id:'20',title:'Chosen action'}]);
+ assert.equal(brief.startWith?.work_id,'20');
+ assert.deepEqual(brief.alternatives.map(e=>e.work_id),['0','1']);
+ assert.equal(brief.reviewCandidate?.work_id,'0');
+ assert.equal(run.phases[1].sections[0].items.length,15);
+});

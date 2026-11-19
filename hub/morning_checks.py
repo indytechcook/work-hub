@@ -108,6 +108,38 @@ def checkout(profile):
     )
 
 
+def review_candidate(url, viewer):
+    ref = reference(url)
+    if not ref or ref.get("kind") != "pull":
+        raise ValueError("Expected a GitHub PR")
+    owner, repo = ref["repo"].split("/")
+    query = """query($owner:String!,$repo:String!,$number:Int!,$viewer:String!){
+      repository(owner:$owner,name:$repo){pullRequest(number:$number){
+        state isDraft headRefOid additions deletions
+        commits(last:1){nodes{commit{statusCheckRollup{state}}}}
+        reviewRequests(first:100){nodes{requestedReviewer{... on User{login}}}}
+        reviews(author:$viewer,last:1,states:[APPROVED,CHANGES_REQUESTED]){nodes{state commit{oid}}}
+      }}}"""
+    data = json.loads(command(["gh","api","graphql","-f","query="+query,"-f","owner="+owner,
+                               "-f","repo="+repo,"-F",f"number={ref['number']}","-f","viewer="+viewer]))
+    pr = data["data"]["repository"]["pullRequest"]
+    requests = pr["reviewRequests"]["nodes"]
+    if pr["state"] != "OPEN" or pr["isDraft"] or not any(
+        (r.get("requestedReviewer") or {}).get("login","").casefold() == viewer.casefold() for r in requests
+    ):
+        return None
+    reviews = pr["reviews"]["nodes"]
+    if reviews and (reviews[0].get("commit") or {}).get("oid") == pr["headRefOid"]:
+        return None
+    checks = pr["commits"]["nodes"]
+    if checks and (checks[0]["commit"].get("statusCheckRollup") or {}).get("state") in ("ERROR","FAILURE"):
+        return None
+    revisit = bool(reviews and reviews[0]["state"] == "CHANGES_REQUESTED")
+    reason = "New commits since you requested changes" if revisit else "Your review is requested on this revision"
+    size = pr["additions"] + pr["deletions"]
+    return ((0 if revisit else 1,size), f"{reason} · +{pr['additions']}/−{pr['deletions']} · {pr['headRefOid'][:12]}")
+
+
 def pull_requests(store, profile):
     repo = profile.get("repository")
     result = []
@@ -133,6 +165,13 @@ def pull_requests(store, profile):
         rows = json.loads(command(args))
         entries = []
         failures = 0
+        picks = []
+        viewer = None
+        if flag == "--review-requested" and rows:
+            try:
+                viewer = command(["gh","api","user","--jq",".login"]).strip()
+            except (OSError, ValueError, subprocess.SubprocessError):
+                failures += 1
         for row in rows[:25]:
             url = row["url"]
             details = ["Draft" if row["isDraft"] else "Open", row["author"]["login"]]
@@ -208,6 +247,15 @@ def pull_requests(store, profile):
                     wid[0] if wid else "",
                 )
             )
+            if viewer and not row["isDraft"]:
+                try:
+                    pick = review_candidate(url,viewer)
+                except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
+                    failures += 1
+                    continue
+                if pick:
+                    rank, reason = pick
+                    picks.append((rank, {**entries[-1], "detail": reason}))
         result.append(
             section(
                 label,
@@ -217,6 +265,10 @@ def pull_requests(store, profile):
                 limit=25,
             )
         )
+        if flag == "--review-requested":
+            ranked = [entry for _,entry in sorted(picks,key=lambda pair:pair[0])]
+            result.append(section("Review candidates", ranked, "Direct review requests. Re-reviews first, then smaller diffs.",
+                                  "partial" if failures or len(rows)>25 else "checked", limit=25))
     return result
 
 

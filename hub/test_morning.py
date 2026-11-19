@@ -5,12 +5,29 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 from morning import brief, morning_targets, original_detail, source_check, verify_links
-from morning_checks import projects, standup
+from morning_checks import projects, standup, review_candidate
 from store import Store, digest
 from test_support import isolate_storage
 
 
 class MorningTests(unittest.TestCase):
+    def test_review_candidate_requires_a_pending_direct_request_on_unreviewed_head(self):
+        url = 'https://github.com/example/project/pull/7'
+        pr = dict(state='OPEN',isDraft=False,headRefOid='a'*40,additions=12,deletions=3,
+                  reviewRequests={'nodes':[{'requestedReviewer':{'login':'Sam'}}]},
+                  commits={'nodes':[]}, reviews={'nodes':[]})
+        def check(**updates):
+            result = {'data':{'repository':{'pullRequest':{**pr,**updates}}}}
+            with patch('morning_checks.command',return_value=json.dumps(result)):
+                return review_candidate(url,'sam')
+        self.assertEqual(check()[0],(1,15))
+        self.assertEqual(check(reviews={'nodes':[{'state':'CHANGES_REQUESTED','commit':{'oid':'old'}}]})[0],(0,15))
+        self.assertIsNone(check(reviews={'nodes':[{'state':'APPROVED','commit':{'oid':pr['headRefOid']}}]}))
+        self.assertIsNone(check(commits={'nodes':[{'commit':{'statusCheckRollup':{'state':'FAILURE'}}}]}))
+        self.assertIsNone(check(isDraft=True))
+        self.assertIsNone(check(state='MERGED'))
+        self.assertIsNone(check(reviewRequests={'nodes':[]}))
+
     def setUp(self):
         isolate_storage(self)
         folder = tempfile.TemporaryDirectory()
