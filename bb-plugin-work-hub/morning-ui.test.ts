@@ -47,6 +47,8 @@ s.close()`;
   host=createFakePluginHost({pluginId:'work-hub',settings:{hubPath:root,pythonPath:python,collectThreads:true,storageFile:cfg,storageBackend:'json'},sdk:{threads:{list:async()=>[],get:async()=>thread,getPluginMetadata:async()=>meta,spawn:async args=>{
     spawns++;meta=args.pluginMetadata??{};assert.equal(args.projectId,'proj_fixture');assert.match(String(args.prompt),/one question at a time/);
     assert.match(String(args.prompt),/work_hub_morning_question/);
+    assert.match(String(args.prompt),/invoke \/review-branch unless the user explicitly requests a lite review/);
+    assert.match(String(args.prompt),/check the returned synthesis and correctness report for the requested revision/);
     return thread;
   }}}});
   await plugin(host.bb);

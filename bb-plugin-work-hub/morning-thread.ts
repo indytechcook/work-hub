@@ -1,6 +1,6 @@
 import {z} from 'zod';
 import {pendingStandup,standupDraft,standupAnswers,standupInstructions} from './standup';
-import {briefingInstructions,morningDecisions} from './morning-decisions';
+import {branchReviewInstructions,briefingInstructions,morningDecisions} from './morning-decisions';
 import {morningQuestion,decisionInstructions} from './morning-question';
 import type {BbPluginApi} from '@get-bb/plugin-sdk';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -116,7 +116,7 @@ export function morningThreads(bb:BbPluginApi,core:Core,runner:Runner){
   async execute(args,ctx){return JSON.stringify(await standup(ctx.threadId,args,ctx.signal))}
  });
  bb.agents.registerTool({name:'work_hub_morning_question',description:'Ask one multiple-choice question in the morning planning thread and receive the selected answer.',
-  instructions:'In Work Hub morning planning threads: '+decisionInstructions,
+  instructions:'In Work Hub morning planning threads: '+decisionInstructions+' '+branchReviewInstructions,
   parameters:morningQuestion,
   async execute(args,ctx){return JSON.stringify(await ask(ctx.threadId,args,ctx.signal))}
  });
