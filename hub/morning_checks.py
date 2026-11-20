@@ -2,6 +2,7 @@
 
 import ast
 import asyncio
+import fcntl
 from datetime import date, datetime, timedelta
 import json
 import os
@@ -462,11 +463,10 @@ def replica(profile):
     )
 
 
-def standup(store, profile, today, bb_enabled):
+def standup_form(profile, today):
     cid = profile.get("dailybot_checkin")
     if today.weekday() > 4 or not cid:
-        return section(
-            "Daily standup",
+        return dict(
             detail="Weekend."
             if today.weekday() > 4
             else "No Dailybot check-in configured.",
@@ -489,44 +489,105 @@ def standup(store, profile, today, bb_enabled):
     completed = (record or {}).get(
         "response_completed", summary.get("current_user_has_response")
     )
-    if record is None or completed is True:
-        return section(
-            "Daily standup",
-            detail="Already completed."
-            if record
-            else "No matching check-in scheduled today.",
-            state="skipped",
-        )
+    if record is None:
+        return dict(state="skipped", detail="No matching check-in scheduled today.")
+    if completed is True:
+        return dict(state="skipped", completed=True, detail="Already completed.")
     if summary.get("current_user_due_on_date") is False:
-        return section(
-            "Daily standup", detail="Check-in is not due today.", state="skipped"
-        )
+        return dict(detail="Check-in is not due today.", state="skipped")
     if completed is not False:
         raise ValueError("Unknown check-in status")
-    data = {s["label"]: s["items"] for s in brief(store, bb_enabled)}
     pending = json.loads(command(["dailybot", "checkin", "list", "--json"]))[
         "pending_checkins"
     ]
     own = next((r for r in pending if r.get("followup_uuid") == cid), None)
     if not own:
-        return section(
-            "Daily standup",
+        return dict(
             detail="No pending personal response. Refresh status before submitting.",
             state="partial",
         )
-    question = next(
-        (
-            q.get("question", "")
-            for q in own.get("template_questions", [])
-            if q.get("index") == 0
-        ),
-        "",
+    questions = own["template_questions"]
+    if not questions or any(
+        q.get("index", i) != i or not q.get("uuid") or not q.get("question")
+        for i, q in enumerate(questions)
+    ):
+        raise ValueError("Unknown DailyBot questionnaire")
+    return dict(
+        state="pending",
+        date=today.isoformat(),
+        checkin=cid,
+        url=record.get("url", ""),
+        questions=[
+            dict(id=q["uuid"], text=q["question"], type=q.get("question_type", "text"))
+            for q in questions
+        ],
     )
-    entries = (
-        [item("Previous workday prompt", question, record.get("url", ""))]
-        if question
-        else []
+
+
+def current_standup():
+    return standup_form(
+        ConfigStore().read("morning") or {}, datetime.now(timezone()).date()
     )
+
+
+def submit_standup(store, reviewed, answers):
+    # Two open review cards can race. Recheck the exact dated questionnaire under a local lock.
+    with store.path.with_suffix(".standup.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        form = current_standup()
+        if form["state"] != "pending":
+            return form
+        if reviewed != form:
+            return dict(
+                state="changed", detail="The questionnaire changed. Open a fresh draft."
+            )
+        if not isinstance(answers, list) or len(answers) != len(form["questions"]):
+            raise ValueError("Answer each question")
+        args = [
+            "dailybot",
+            "checkin",
+            "complete",
+            form["checkin"],
+            "--response-date",
+            form["date"],
+            "--yes",
+            "--json",
+        ]
+        for i, answer in enumerate(answers):
+            if not isinstance(answer, str) or not answer.strip() or len(answer) > 4000:
+                raise ValueError("Invalid standup answer")
+            args.extend(["--answer", f"{i}={answer.strip()}"])
+        try:
+            command(args)
+        except (OSError, subprocess.SubprocessError, ValueError):
+            # A timeout can occur after DailyBot has accepted the response.
+            pass
+        try:
+            status = standup_form(
+                {"dailybot_checkin": form["checkin"]}, date.fromisoformat(form["date"])
+            )
+        except (KeyError, OSError, subprocess.SubprocessError, ValueError):
+            status = {}
+        if status.get("completed") is True:
+            return dict(
+                state="completed",
+                detail="DailyBot confirms your response for " + form["date"] + ".",
+            )
+        return dict(
+            state="unverified",
+            detail="Submission could not be confirmed. Check DailyBot before retrying.",
+        )
+
+
+def standup(store, profile, today, bb_enabled):
+    form = standup_form(profile, today)
+    if form["state"] != "pending":
+        return section("Daily standup", detail=form["detail"], state=form["state"])
+    data = {s["label"]: s["items"] for s in brief(store, bb_enabled)}
+    entries = [
+        item(f"Question {i + 1}", q["text"], form["url"])
+        for i, q in enumerate(form["questions"])
+    ]
     for key, label, limit in [
         ("Completed since previous workday", "Completed", 3),
         ("Carryover", "Carried over", 2),
@@ -538,7 +599,8 @@ def standup(store, profile, today, bb_enabled):
     return section(
         "Daily standup",
         entries,
-        "Draft for review. Confirm prior-workday completions, carryover and whether deadlines are on track before submitting.",
+        "Pending. After priorities are chosen, fill in the DailyBot review form using the confirmed plan and verified completions.",
+        limit=len(entries),
     )
 
 

@@ -55,3 +55,38 @@ test('a large morning queue yields one lead and one review while retaining drill
  assert.equal(brief.reviewCandidate?.work_id,'0');
  assert.equal(run.phases[1].sections[0].items.length,15);
 });
+
+import {morningThreads} from './morning-thread';
+import {createFakePluginHost} from '@get-bb/plugin-sdk/testing';
+
+test('saving the morning plan presents the populated check-in and submits only the reviewed answers',async()=>{
+ const date='2026-11-20',threadId='thr_standup';
+ const host=createFakePluginHost({pluginId:'work-hub',sdk:{threads:{getPluginMetadata:async()=>({morningDate:date})}}});
+ const form={state:'pending',checkin:'fixture',date,url:'',questions:[{id:'q1',type:'text',text:'Today?'}]};
+ const calls:string[]=[];
+ const api=morningThreads(host.bb,async(op,args)=>{
+  calls.push(op);
+  if(op==='morning_context')return {date,scope:'fixture',project_id:null,thread_id:threadId,note:'',version:0,work:[]};
+  if(op==='standup_form')return form;
+  if(op==='save_day_plan')return {version:1};
+  assert.equal(op,'submit_standup');assert.deepEqual(args,{reviewed:form,answers:['Edited answer']});
+  return {state:'completed'};
+ },{start(){throw new Error('Unexpected refresh')}});
+ const plan={version:0,work_ids:[],note:'',answers:['Draft answer']};
+ const open=async()=>{
+  const result=api.save(threadId,plan);
+  await new Promise(r=>setImmediate(r));
+  const card=host.harness.inspection.pendingInteractions[0];
+  assert.equal(card.rendererId,'morning-standup');
+  assert.deepEqual(card.payload,{form,draft:{answers:plan.answers}});
+  return {result,id:card.id};
+ };
+ const first=await open();
+ await host.harness.behavior.cancelInteraction(first.id);
+ assert.deepEqual((await first.result).standup,{state:'deferred',detail:'Standup left pending.'});
+ assert.ok(!calls.includes('submit_standup'));
+ const second=await open();
+ await host.harness.behavior.submitInteraction(second.id,['Edited answer']);
+ assert.deepEqual((await second.result).standup,{state:'completed'});
+ assert.equal(calls.filter(op=>op==='submit_standup').length,1);
+});

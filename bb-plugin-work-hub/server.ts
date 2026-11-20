@@ -297,10 +297,18 @@ export default async function plugin(bb:BbPluginApi) {
   },
   acknowledge:async(args)=>{await core('acknowledge',args);bb.realtime.publish('changed',{});return {ok:true};},
  });
- bb.cli.register({name:'work-hub',summary:'Read the portable work register and source coverage',commands:[{name:'close-out',summary:'Run deep local reconciliation or read its last report',usage:'bb work-hub close-out [status]'},{name:'create',summary:'Create a standalone personal work item',usage:'bb work-hub create <title> [purpose]'},{name:'morning',summary:'Run or inspect the guided checks from today’s morning thread',usage:'bb work-hub morning [--wait] [--refresh RUN_ID] [phase] [offset] | morning ask <question> <choice> <choice> [...]'},{name:'add-link',summary:'Attach source URLs to a work item',usage:'bb work-hub add-link <work-id> <url> [url...]'},{name:'status',summary:'Work and coverage as JSON',usage:'bb work-hub status'},{name:'sync',summary:'Reconcile recent BB conversations',usage:'bb work-hub sync'}],async run(argv,ctx){
+ bb.cli.register({name:'work-hub',summary:'Read the portable work register and source coverage',commands:[{name:'close-out',summary:'Run deep local reconciliation or read its last report',usage:'bb work-hub close-out [status]'},{name:'create',summary:'Create a standalone personal work item',usage:'bb work-hub create <title> [purpose]'},{name:'morning',summary:'Run or inspect the guided checks from today’s morning thread',usage:'bb work-hub morning [--wait] [--refresh RUN_ID] [phase] [offset] | morning ask <question> <choice> <choice> [...] | morning save <JSON> | morning standup-review <answers-JSON>'},{name:'add-link',summary:'Attach source URLs to a work item',usage:'bb work-hub add-link <work-id> <url> [url...]'},{name:'status',summary:'Work and coverage as JSON',usage:'bb work-hub status'},{name:'sync',summary:'Reconcile recent BB conversations',usage:'bb work-hub sync'}],async run(argv,ctx){
   if(argv[0]==='morning'){
    const threadId=ctx.threadId;
    if(!threadId)return {exitCode:1,stdout:'Run from today’s morning thread with the work_hub_morning tool.'};
+   if(argv[1]==='save'){
+    if(argv.length!==3)throw new Error('Pass the confirmed plan and optional standup answers as one JSON argument.');
+    return {exitCode:0,stdout:JSON.stringify(await planning.save(threadId,JSON.parse(argv[2]),ctx.signal))};
+   }
+   if(argv[1]==='standup-review'){
+    if(argv.length!==3)throw new Error('Pass the JSON array of draft answers as one argument.');
+    return {exitCode:0,stdout:JSON.stringify(await planning.standup(threadId,{answers:JSON.parse(argv[2])},ctx.signal))};
+   }
    if(argv[1]==='ask'){
     const [,,question,...choices]=argv;
     return {exitCode:0,stdout:JSON.stringify(await planning.ask(threadId,{question,choices},ctx.signal))};

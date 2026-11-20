@@ -5,6 +5,7 @@ import {Button} from '@/components/ui/button';
 import {ThreadContextPanel,WorkContextButton,WORK_CONTEXT_TAB} from './thread-context';
 import {Modal,ResumeDialog,WorkDetailView,useAgentLaunch,usePreference,when} from './work-ui';
 import {CloseOut} from './close-out';
+import {StandupForm} from './standup-form';
 import {MorningQuestionForm} from './morning-question-form';
 import {CreateWork} from './create-work';
 import {LegacyReview} from './legacy-review';
@@ -86,6 +87,7 @@ export function Today({subPath}:{subPath:string}){
  </div></div>;
 }
 export default definePluginApp(app=>{
+ app.slots.pendingInteraction({id:'morning-standup',component:StandupForm});
  app.slots.pendingInteraction({id:'morning-question',component:MorningQuestionForm});
  app.slots.navPanel({id:'work-hub',title:'Work Hub',icon:'work-hub/compass',path:'today',component:Today});
  app.slots.experimental_tab({...WORK_CONTEXT_TAB,title:'Work context',icon:'work-hub/compass',layout:'flush',component:ThreadContextPanel});

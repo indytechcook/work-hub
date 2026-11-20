@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 from morning import brief, morning_targets, original_detail, source_check, verify_links
-from morning_checks import projects, standup, review_candidate
+from morning_checks import projects, standup, submit_standup, review_candidate
 from store import Store, digest
 from test_support import isolate_storage
 
@@ -201,6 +201,29 @@ class MorningTests(unittest.TestCase):
             )[0]
             self.assertIn("Changed", result["items"][0]["detail"])
             self.assertNotIn("Later gate", result["items"][0]["detail"])
+
+    def test_standup_checks_reviewed_form_and_reads_back_after_uncertain_write(self):
+        form = dict(state="pending", date="2026-06-08", checkin="fixture",
+                    questions=[dict(id="first", text="Today?", type="text")])
+        done = dict(state="skipped", completed=True, detail="Already completed.")
+        with patch("morning_checks.current_standup", return_value=form) as current, \
+                patch("morning_checks.command") as send, \
+                patch("morning_checks.standup_form", return_value=done) as verify:
+            self.assertEqual(submit_standup(self.store, {**form, "date": "2026-06-05"}, ["A"])["state"], "changed")
+            with self.assertRaises(ValueError):
+                submit_standup(self.store, form, [])
+            send.assert_not_called()
+            send.side_effect = TimeoutError()
+            self.assertEqual(submit_standup(self.store, form, ["Review the release"])["state"], "completed")
+            self.assertEqual(send.call_args.args[0][-2:], ["--answer", "0=Review the release"])
+            verify.assert_called_once_with({"dailybot_checkin":"fixture"}, date(2026,6,8))
+            current.return_value = done
+            self.assertEqual(submit_standup(self.store, form, ["Duplicate"])["state"], "skipped")
+            self.assertEqual(send.call_count, 1)
+            current.return_value = form
+            verify.return_value = form
+            self.assertEqual(submit_standup(self.store, form, ["Review"])["state"], "unverified")
+            self.assertEqual(send.call_count, 2)
 
     def test_weekend_and_completed_standup_skip_drafting(self):
         profile = {"dailybot_checkin": "example"}

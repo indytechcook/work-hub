@@ -22,11 +22,13 @@ def main():
             else: result=store._record('closeout:last',None)
         finally: store.close()
         print(json.dumps({'ok':True,'result':result}));return
-    if op in ('morning_targets','morning_links','morning_step','morning_context','record_morning_thread','last_morning_result','save_morning_result'):
+    if op in ('standup_form','submit_standup','morning_targets','morning_links','morning_step','morning_context','record_morning_thread','last_morning_result','save_morning_result'):
         from morning import morning_targets,verify_links,morning_context,record_morning_thread,last_morning_result,save_morning_result
-        from morning_checks import run_step
+        from morning_checks import run_step,submit_standup,current_standup
         store=Store(STATE/'work.db')
-        try:result={'morning_targets':morning_targets,'morning_links':verify_links,'morning_step':run_step,'morning_context':morning_context,'record_morning_thread':record_morning_thread,'last_morning_result':last_morning_result,'save_morning_result':save_morning_result}[op](store,**args)
+        try:
+            if op=="standup_form": result=current_standup()
+            else: result={'submit_standup':submit_standup,'morning_targets':morning_targets,'morning_links':verify_links,'morning_step':run_step,'morning_context':morning_context,'record_morning_thread':record_morning_thread,'last_morning_result':last_morning_result,'save_morning_result':save_morning_result}[op](store,**args)
         except Exception as error:
             raise ValueError('Morning check unavailable ('+type(error).__name__+'). Check source access and configuration.') from None
         finally:store.close()

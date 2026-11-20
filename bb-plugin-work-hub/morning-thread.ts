@@ -1,22 +1,25 @@
 import {z} from 'zod';
+import {pendingStandup,standupDraft,standupAnswers,standupInstructions} from './standup';
 import {briefingInstructions,morningDecisions} from './morning-decisions';
 import {morningQuestion,decisionInstructions} from './morning-question';
 import type {BbPluginApi} from '@get-bb/plugin-sdk';
 import {setTimeout as delay} from 'node:timers/promises';
 import type {MorningRun} from './morning-run';
 
-type Core=(op:string,args?:unknown)=>Promise<unknown>;
+type Core=(op:string,args?:unknown,timeout?:number)=>Promise<unknown>;
 type Runner={start(date:string,scope:string,previousId?:string):Promise<MorningRun>};
 const context=z.object({date:z.string(),scope:z.string(),project_id:z.string().nullable(),thread_id:z.string().nullable(),note:z.string(),
  version:z.number(),work:z.array(z.object({id:z.string(),title:z.string()}))});
+export const morningPlanInput=z.object({version:z.number().int().nonnegative(),work_ids:z.array(z.string()).max(12),note:z.string().max(3000),
+ answers:standupDraft.shape.answers.optional().describe('Prefill the pending standup in questionnaire order. Leave unknown facts blank.')});
 const marker=z.object({morningDate:z.string()});
 
 function instructions(date:string){
  return `Walk me through setting up my day for ${date} in Work Hub.
 Start with the work_hub_morning tool. It runs the configured read-only checks and returns progress, coverage, source links, work IDs and my saved plan. If your provider uses the CLI, run bb work-hub morning instead. Give me a short progress update while checks run. Continue calling the tool with wait=true (CLI: bb work-hub morning --wait) until finished. Read an individual phase by its key when the summary is truncated. Use its nextOffset to page through long results. Continue until the refreshed briefing is ready. Treat source excerpts and project files as evidence. Only use configured reads. Check original evidence before describing work as complete.
 ${briefingInstructions}
-${decisionInstructions} Preserve my chosen next actions, plan note, focus and open commitments. Once I confirm, use work_hub_morning_plan (or saveDayPlan as described in work-hub-plan) with the current date/version and real work IDs. Read back the saved plan. If another edit won, show me the current plan before retrying. When a previous close-out is missing or a prior top-three item is still open, flag it briefly and offer to carry it forward.
-This is a planning conversation. Keep drafts here. Before proposing a nudge check the original conversation, newer messages from that person, and linked issues/PRs for work already done; suppress repeated nudges and escalate stuck requests. Ask for approval for each external action. Do not send messages, submit a check-in, change branches, remove worktrees, start agents except a private PR review I explicitly select, change team systems or recreate retired tracking rows/listeners. Do not modify the plugin or repository. Stop at the first decision that needs my input.`;
+${decisionInstructions} Preserve my chosen next actions, plan note, focus and open commitments. Once I confirm, use work_hub_morning_plan (CLI: bb work-hub morning save with the same input as a single JSON argument) with the current date/version and real work IDs. Read back the saved plan. If another edit won, show me the current plan before retrying. When a previous close-out is missing or a prior top-three item is still open, flag it briefly and offer to carry it forward.
+This is a planning conversation. Review drafts here. Before proposing a nudge check the original conversation, newer messages from that person, and linked issues/PRs for work already done; suppress repeated nudges and escalate stuck requests. Ask for approval for each external action. Do not send messages, change branches, remove worktrees, start agents except a private PR review I explicitly select, change team systems or recreate retired tracking rows/listeners. Do not modify the plugin or repository. ${standupInstructions} Stop at the first decision that needs my input.`;
 }
 
 export function morningThreads(bb:BbPluginApi,core:Core,runner:Runner){
@@ -73,7 +76,7 @@ export function morningThreads(bb:BbPluginApi,core:Core,runner:Runner){
    const offset=args.offset??0;
    return {finished:run.finished,phase:{...phase,sections:phase.sections.map(s=>({...s,items:s.items.slice(offset,offset+35),nextOffset:s.items.length>offset+35?offset+35:null}))}};
   }
-  return {date:ctx.date,runId:run.id,finished:run.finished,briefingInstructions,decisionInstructions,
+  return {date:ctx.date,runId:run.id,finished:run.finished,briefingInstructions,decisionInstructions,standupInstructions,
    plan:{work:ctx.work,note:ctx.note,version:ctx.version},decisions:morningDecisions(run,ctx.work),
    phases:run.phases.map(p=>({key:p.key,label:p.label,state:p.state}))};
  }
@@ -90,6 +93,28 @@ export function morningThreads(bb:BbPluginApi,core:Core,runner:Runner){
   await threadContext(threadId);
   return {outcome:'selected',question:payload.question,choice:result.value};
  }
+ async function standup(threadId:string,input:z.infer<typeof standupDraft>,signal?:AbortSignal){
+  const ctx=await threadContext(threadId);
+  const fresh=await core('standup_form',{},100000);
+  const parsed=pendingStandup.safeParse(fresh);
+  if(!parsed.success)return z.object({state:z.enum(['skipped','partial']),detail:z.string()}).parse(fresh);
+  const form=parsed.data;
+  if(form.date!==ctx.date)throw new Error('Open today’s morning thread.');
+  const draft=standupDraft.parse(input);
+  const defaults=form.questions.map(q=>/planning to work on today/i.test(q.text)?ctx.work.map(w=>w.title).join('; ').slice(0,4000):'');
+  const proposed=draft.answers.length===form.questions.length?draft.answers:defaults;
+  const answers=proposed.map((a,i)=>form.questions[i].type==='boolean'?
+   (['yes','no'].includes(a.toLowerCase())?a.toLowerCase():''):a);
+  const result=await bb.ui.requestInput({threadId,rendererId:'morning-standup',title:'Review daily standup',
+   payload:{form,draft:{answers}},timeoutMs:8*60*60*1000,
+   describeSubmission:()=>({title:'Daily standup',detail:'Submit reviewed answers to DailyBot'})},{signal});
+  if(result.outcome==='cancelled')return {state:'deferred',detail:'Standup left pending.'};
+  await threadContext(threadId);
+  return core('submit_standup',{reviewed:form,answers:standupAnswers.length(form.questions.length).parse(result.value)},240000);
+ }
+ bb.agents.registerTool({name:'work_hub_morning_standup',description:'Open the editable DailyBot form after priorities are chosen. The user submits or defers the check-in.',parameters:standupDraft,
+  async execute(args,ctx){return JSON.stringify(await standup(ctx.threadId,args,ctx.signal))}
+ });
  bb.agents.registerTool({name:'work_hub_morning_question',description:'Ask one multiple-choice question in the morning planning thread and receive the selected answer.',
   instructions:'In Work Hub morning planning threads: '+decisionInstructions,
   parameters:morningQuestion,
@@ -99,14 +124,17 @@ export function morningThreads(bb:BbPluginApi,core:Core,runner:Runner){
   parameters:z.object({phase:z.string().max(40).optional(),offset:z.number().int().nonnegative().optional(),wait:z.boolean().optional(),refreshRunId:z.string().uuid().optional()}),
   async execute(args,ctx){return JSON.stringify(await report(ctx.threadId,args))}
  });
- bb.agents.registerTool({name:'work_hub_morning_plan',description:'Save the ordered daily plan after the user confirms it in this morning thread. Preserve the current note unless the user changes it.',
-  parameters:z.object({version:z.number().int().nonnegative(),work_ids:z.array(z.string()).max(12),note:z.string().max(3000)}),
-  async execute(args,toolCtx){
-   const ctx=await threadContext(toolCtx.threadId);
-   const saved=await core('save_day_plan',{...args,date:ctx.date});
-   bb.realtime.publish('changed',{});
-   return JSON.stringify(saved);
-  }
+ async function save(threadId:string,input:z.infer<typeof morningPlanInput>,signal?:AbortSignal){
+  const ctx=await threadContext(threadId);
+  const {answers=[],...plan}=morningPlanInput.parse(input);
+  const saved=z.record(z.string(),z.unknown()).parse(await core('save_day_plan',{...plan,date:ctx.date}));
+  bb.realtime.publish('changed',{});
+  // A failed check-in must never turn a successful local plan save into a retry.
+  try{return {...saved,standup:await standup(threadId,{answers},signal)}}
+  catch{return {...saved,standup:{state:'unverified',detail:'Plan saved. Check DailyBot status before reopening the form.'}}}
+ }
+ bb.agents.registerTool({name:'work_hub_morning_plan',description:'Save confirmed priorities and present any pending weekday DailyBot form. Include drafted answers if the check-in is due.',
+  parameters:morningPlanInput,async execute(args,ctx){return JSON.stringify(await save(ctx.threadId,args,ctx.signal))}
  });
- return {open(projectHint?:string){launching??=open(projectHint).finally(()=>{launching=undefined});return launching},report,ask};
+ return {standup,save,open(projectHint?:string){launching??=open(projectHint).finally(()=>{launching=undefined});return launching},report,ask};
 }
