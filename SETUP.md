@@ -328,3 +328,23 @@ Restart with `launchctl bootstrap` and the same arguments. Disabling the plugin 
 | Delayed during sleep | Local jobs require an awake logged-in computer. |
 
 The public source has local automated validation, not a completed clean-machine end-to-end installation. Account grants, organization policies and your acceptance checks determine readiness. Ask your implementing AI for a concise final report with what passed, remaining blockers, configuration locations and stop/restart commands—never credentials or source payloads.
+
+## Native BB Automations
+
+Enable the BB Automations and Workflows plugins. Run schedules on the BB server that owns the Work Hub database and connectors. The collector and analyzer keep their existing schedules. Install only the checks you want. Before creating a schedule, inspect `bb automation list --project PROJECT_ID --json` for one with the same name.
+
+From this repository, substitute the actual BB project ID and local timezone. For each selected operation, set `tick` to `health-check`, `reply-check`, or `dispatch` and run:
+
+```sh
+bb automation create --project "$project_id" --name "Work Hub · $tick" \
+  --cron '*/15 * * * *' --timezone "$work_timezone" \
+  --script-file hub/bb-tick.sh --interpreter sh --timeout 10m \
+  --env-json "{\"WORK_HUB_TICK\":\"$tick\"}"
+```
+
+- **health-check** raises a Work Hub attention item when coverage stays degraded across checks. Recovery clears the active alert.
+- **reply-check** checks up to four due Slack or Gmail conversations per tick, oldest check first. An open obligation owed to you qualifies automatically. For an individual sent question, use `bb work-hub watch-reply URL SENT_MESSAGE_ID [WORK_ID]`. A detected reply appears in attention for review. Original source permissions, bounded history and the sending identity affect coverage.
+- **dispatch** launches at most one private agent per tick. Configure the morning GitHub repository and/or the Better Stack application first. The first poll records existing eligible revisions and patterns as a baseline. Subsequent requests, head changes, new unresolved patterns and observed recurrences can trigger work. To pilot a current PR, use `bb work-hub dispatch PR_URL`. Reviews use separate persistent clones. BB Workflows runs the full review skill followed by an artifact and revision check. Triage opens a visible private investigation. Results live in the linked thread. External publication requires a separate decision.
+- **Finish day** opens a visible close-out thread. The optional nightly reconciliation continues in the background. `bb work-hub close-out run` starts reconciliation without opening a conversation.
+
+Pause a schedule with `bb automation pause AUTOMATION_ID --project PROJECT_ID`. BB copies script files when a schedule is created. Refresh the stored script when changing the wrapper.

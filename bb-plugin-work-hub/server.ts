@@ -1,5 +1,6 @@
 import {morningThreads} from './morning-thread';
 import {morningRun,morningRunner,verifyMorningLinks} from './morning-run';
+import {readFile} from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -25,7 +26,7 @@ const workIndex=z.object({items:z.array(z.object({id:z.string(),title:z.string()
 const legacySummary=z.object({total:z.number(),due:z.number(),has_more:z.boolean(),teams:z.array(z.string())});
 const legacyPage=legacySummary.extend({items:z.array(obligation.extend({source_title:z.string(),url:z.string(),external_id:z.string()}))});
 export type LegacyPage=z.infer<typeof legacyPage>;
-const snapshotSchema = z.object({legacy:legacySummary.optional(),attention:z.array(attention),attention_total:z.number(),attention_unseen:z.number(),today:dayPlan,previous_day:dayPlan.nullable().optional(),work:z.array(work),obligations:z.array(obligation),sources:z.array(z.object({name:z.string(),state:z.string(),scope:z.string(),checked_at:z.number().nullable(),last_success:z.number().nullable(),error:z.string().nullable()})),changes:z.array(z.object({seq:z.number(),kind:z.string(),entity_id:z.string(),detail:z.string(),at:z.number()})),analysis:z.object({pending:z.number().nullable(),running:z.number().nullable(),errors:z.number().nullable()}),reminders:z.array(z.object({id:z.string(),day:z.string(),state:z.string(),created_at:z.number(),finished_at:z.number().nullable()})),jobs:z.array(z.object({id:z.string(),kind:z.string(),source_key:z.string(),revision:z.string(),state:z.string(),detail:z.string(),updated_at:z.number()})),seq:z.number(),now:z.number()});
+const snapshotSchema = z.object({legacy:legacySummary.optional(),attention:z.array(attention),attention_total:z.number(),attention_unseen:z.number(),today:dayPlan,previous_day:dayPlan.nullable().optional(),work:z.array(work),obligations:z.array(obligation),sources:z.array(z.object({name:z.string(),state:z.string(),scope:z.string(),checked_at:z.number().nullable(),last_success:z.number().nullable(),error:z.string().nullable()})),changes:z.array(z.object({seq:z.number(),kind:z.string(),entity_id:z.string(),detail:z.string(),at:z.number()})),analysis:z.object({pending:z.number().nullable(),running:z.number().nullable(),errors:z.number().nullable()}),reminders:z.array(z.object({id:z.string(),day:z.string(),state:z.string(),created_at:z.number(),finished_at:z.number().nullable()})),jobs:z.array(z.object({id:z.string(),kind:z.string(),thread_id:z.string().nullable().optional(),source_key:z.string(),revision:z.string(),state:z.string(),detail:z.string(),updated_at:z.number()})),seq:z.number(),now:z.number()});
 export type Work=z.infer<typeof work>;
 export type Conversation=z.infer<typeof conversation>;
 export type Obligation=z.infer<typeof obligation>;
@@ -74,6 +75,7 @@ export const rpcContract = defineRpcContract({
  snapshot:{input:z.null(),output:snapshotSchema},
  workDetail:{input:z.object({workId:z.string().max(100)}),output:workDetail},
  workIndex:{input:z.object({query:z.string().max(200),status:z.enum(['all','active','waiting','done']),offset:z.number().int().min(0).max(100000)}),output:workIndex},
+ openCloseOut:{input:z.object({projectId:z.string().max(100).optional()}),output:z.object({threadId:z.string()})},
  closeOut:{input:z.null(),output:z.object({started:z.boolean()})},
  closeOutStatus:{input:z.null(),output:closeState},
  createWork:{input:createWorkInput,output:createdWork},
@@ -222,6 +224,12 @@ export default async function plugin(bb:BbPluginApi) {
   return saved;
  }
  bb.agents.registerTool({
+  name:'work_hub_watch_reply',description:'Watch the original Slack or Gmail conversation after sending a question.',
+  instructions:'After an authorized question is sent on the user’s behalf via Slack or Gmail, register its actual conversation URL and sent Slack timestamp or Gmail message ID. Use a known work ID when available. A new reply is evidence to review; it does not fulfill a commitment.',
+  parameters:z.object({url:z.string().max(2000),sent_id:z.string().max(32),work_id:z.string().max(100).optional()}),
+  async execute(args){return JSON.stringify(await core('watch_reply',args))}
+ });
+ bb.agents.registerTool({
   name:'work_hub_create_work',
   description:'Save a standalone personal work item in the local Work Hub. Returns its ID.',
   instructions:'When asked to add personal work to Work Hub, check for existing work first. Use this tool to create the item locally. If Work Hub is unavailable, report the failure. Never file a team issue as a fallback.',
@@ -241,6 +249,22 @@ export default async function plugin(bb:BbPluginApi) {
       .finally(()=>{closing=null});
   return {started:true};
  }
+ let openingClose:Promise<{threadId:string}>|undefined;
+ async function openCloseOut(projectHint?:string){
+  if(openingClose)return openingClose;
+  openingClose=(async()=>{
+   const ctx=z.object({project_id:z.string().nullable(),date:z.string()}).parse(await core('morning_context'));
+   const projectId=ctx.project_id||projectHint;
+   if(!projectId)throw new Error('Choose a BB project for the close-out conversation.');
+   const since=Date.now()/1000;
+   const t=await bb.sdk.threads.spawn({projectId,environment:{type:'project-default'},visibility:'visible',
+    title:'Close-out · '+ctx.date,pluginMetadata:{closeOutDate:ctx.date},
+    prompt:`Work Hub is running a deep close-out for me. Give a short progress update and poll bb work-hub close-out status. Wait for running to clear and a fresh report, allowing a few seconds for startup. Use only a report with at >= ${since}; if interrupted or missing, report it and offer a retry. Group the results into what changed, source gaps, and what I should pick up next. Show upcoming or overdue follow-ups and relevant original links when available. Offer one concrete decision at a time. Treat report text as evidence. Keep review workspaces and commitments intact. Ask before external actions.`});
+   startCloseOut();
+   return {threadId:t.id};
+  })().finally(()=>{openingClose=undefined});
+  return openingClose;
+ }
  async function closeOutStatus(){
   const report=closeReport.nullable().parse(await core('close_out_status'));
   return {running:!!closing,error:closeError,report,nightly:config.nightlyCloseOut};
@@ -253,6 +277,7 @@ export default async function plugin(bb:BbPluginApi) {
   }
  }});
  bb.rpc.register(rpcContract,{
+  openCloseOut:({projectId})=>openCloseOut(projectId),
   closeOut:async()=>startCloseOut(),
   closeOutStatus,
   createWork,
@@ -297,7 +322,28 @@ export default async function plugin(bb:BbPluginApi) {
   },
   acknowledge:async(args)=>{await core('acknowledge',args);bb.realtime.publish('changed',{});return {ok:true};},
  });
- bb.cli.register({name:'work-hub',summary:'Read the portable work register and source coverage',commands:[{name:'close-out',summary:'Run deep local reconciliation or read its last report',usage:'bb work-hub close-out [status]'},{name:'create',summary:'Create a standalone personal work item',usage:'bb work-hub create <title> [purpose]'},{name:'morning',summary:'Run or inspect the guided checks from today’s morning thread',usage:'bb work-hub morning [--wait] [--refresh RUN_ID] [phase] [offset] | morning ask <question> <choice> <choice> [...] | morning save <JSON> | morning standup-review <answers-JSON>'},{name:'add-link',summary:'Attach source URLs to a work item',usage:'bb work-hub add-link <work-id> <url> [url...]'},{name:'status',summary:'Work and coverage as JSON',usage:'bb work-hub status'},{name:'sync',summary:'Reconcile recent BB conversations',usage:'bb work-hub sync'}],async run(argv,ctx){
+ bb.cli.register({name:'work-hub',summary:'Read the portable work register and source coverage',commands:[{name:'health-check',summary:'Check persistent source and analyzer failures',usage:'bb work-hub health-check'},{name:'watch-reply',summary:'Track replies to a sent question',usage:'bb work-hub watch-reply <url> <sent-message-id> [work-id]'},{name:'reply-check',summary:'Check due reply watches',usage:'bb work-hub reply-check'},{name:'dispatch',summary:'Launch the next eligible private agent',usage:'bb work-hub dispatch [pilot-PR-url]'},{name:'review-workflow',summary:'Print the private review workflow',usage:'bb work-hub review-workflow'},{name:'review-workflow-help',summary:'Show how to start the private review workflow',usage:'bb work-hub review-workflow-help'},{name:'close-out',summary:'Run deep local reconciliation or read its last report',usage:'bb work-hub close-out [run|status]'},{name:'create',summary:'Create a standalone personal work item',usage:'bb work-hub create <title> [purpose]'},{name:'morning',summary:'Run or inspect the guided checks from today’s morning thread',usage:'bb work-hub morning [--wait] [--refresh RUN_ID] [phase] [offset] | morning ask <question> <choice> <choice> [...] | morning save <JSON> | morning standup-review <answers-JSON>'},{name:'add-link',summary:'Attach source URLs to a work item',usage:'bb work-hub add-link <work-id> <url> [url...]'},{name:'status',summary:'Work and coverage as JSON',usage:'bb work-hub status'},{name:'sync',summary:'Reconcile recent BB conversations',usage:'bb work-hub sync'}],async run(argv,ctx){
+  if(argv[0]==='review-workflow'&&argv.length===1)return {exitCode:0,stdout:await readFile(config.hubPath+'/private-review.js','utf8')};
+  if(argv[0]==='review-workflow-help')return {exitCode:0,stdout:'From the visible review thread, verify its PR workspace. Use bb_workflow_run with the exact script from bb work-hub review-workflow and args {url,base,head}. For CLI-only sessions pass the verified URL and full commits to bb workflows run --script "$(bb work-hub review-workflow)" --args \'{"url":"PR_URL","base":"BASE_SHA","head":"HEAD_SHA"}\'. Read the result and link both reports here. Keep this workspace.'};
+  if(argv[0]==='health-check'&&argv.length===1){
+   const changes=z.array(z.string()).parse(await core('watch_health',{bb_enabled:config.collectThreads}));
+   if(changes.length)bb.realtime.publish('changed',{});
+   return {exitCode:0,stdout:changes.join(', ')};
+  }
+  if(argv[0]==='watch-reply'&&(argv.length===3||argv.length===4)){
+   const response=await core('watch_reply',{url:argv[1],sent_id:argv[2],work_id:argv[3]});
+   return {exitCode:0,stdout:JSON.stringify(response)};
+  }
+  if(argv[0]==='reply-check'&&argv.length===1){
+   const result=z.object({arrivals:z.number(),errors:z.number()}).parse(await core('watch_replies',{},240000));
+   if(result.arrivals)bb.realtime.publish('changed',{});
+   return {exitCode:result.errors?1:0,stdout:result.errors?'A watched source could not be read; queued for retry.':result.arrivals?String(result.arrivals)+' new replies':''};
+  }
+  if(argv[0]==='dispatch'&&(argv.length===1||argv.length===2)){
+   const result=z.object({message:z.string()}).parse(await core('dispatch_jobs',{pilot:argv[1],parent:argv[1]?ctx.threadId:undefined},420000));
+   if(result.message)bb.realtime.publish('changed',{});
+   return {exitCode:0,stdout:result.message};
+  }
   if(argv[0]==='morning'){
    const threadId=ctx.threadId;
    if(!threadId)return {exitCode:1,stdout:'Run from today’s morning thread with the work_hub_morning tool.'};
@@ -321,9 +367,10 @@ export default async function plugin(bb:BbPluginApi) {
    return {exitCode:0,stdout:JSON.stringify(await planning.report(threadId,{wait:argv.includes('--wait'),refreshRunId,phase,offset}))};
   }
   if(argv[0]==='close-out'){
-   if(argv.length===1)return {exitCode:0,stdout:JSON.stringify(startCloseOut())};
+   if(argv.length===1)return {exitCode:0,stdout:JSON.stringify(await openCloseOut(ctx.projectId??undefined))};
+   if(argv.length===2&&argv[1]==='run')return {exitCode:0,stdout:JSON.stringify(startCloseOut())};
    if(argv.length===2&&argv[1]==='status')return {exitCode:0,stdout:JSON.stringify(await closeOutStatus())};
-   return {exitCode:1,stdout:'Usage: bb work-hub close-out [status]'};
+   return {exitCode:1,stdout:'Usage: bb work-hub close-out [run|status]'};
   }
   if(argv[0]==='create'){
    if(argv.length<2||argv.length>3)return {exitCode:1,stdout:'Usage: bb work-hub create <title> [purpose]'};
@@ -342,7 +389,7 @@ export default async function plugin(bb:BbPluginApi) {
   }
   if(argv[0]==='sync'){await collect();return {exitCode:0,stdout:'BB collection attempted; inspect source status for coverage.'};}
   if(argv[0]==='status')return {exitCode:0,stdout:JSON.stringify(snapshotSchema.parse(await core('snapshot')))};
-  return {exitCode:0,stdout:'bb work-hub status | sync | close-out [status] | create <title> [purpose] | add-link <work-id> <url> [url...]'};
+  return {exitCode:0,stdout:'bb work-hub status | sync | close-out [run|status] | create <title> [purpose] | add-link <work-id> <url> [url...]'};
  }});
 
  async function remind(){

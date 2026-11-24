@@ -85,7 +85,7 @@ Experimental, single-user, local-first software. The documented background setup
 
 Collection defaults to off. You choose accounts, sources and the analyzer before enabling it. Coverage is bounded, extraction is asynchronous and commitments can need review. Check source freshness and backlog before relying on an empty attention panel.
 
-Automatic live PR-review/error-fixer workers are not included. Starting an agent uses BB's native composer and the permissions you choose there.
+Optional BB Automations check coverage, watch for replies and launch private review or error-triage threads. A private review runs the repository skill and a separate verification stage inside its persistent review workspace. [Configure native Automations and Workflows](SETUP.md#native-bb-automations).
 
 ## Development checks
 

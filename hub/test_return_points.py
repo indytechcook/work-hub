@@ -4,7 +4,7 @@ from store import Store,digest
 
 class ReturnPointTests(unittest.TestCase):
     def setUp(self):
-        self.tmp=tempfile.TemporaryDirectory();self.s=Store(Path(self.tmp.name)/'work.db');self.now=time.time();self.cid=digest('bb','thr_demo')
+        self.tmp=tempfile.TemporaryDirectory();self.s=Store(Path(self.tmp.name)/'work.db');self.now=int(time.time());self.cid=digest('bb','thr_demo')
     def tearDown(self):self.s.close();self.tmp.cleanup()
     def capture(self,status='idle',at=None,turn=None,report='Tests passed; deployment remains.'):
         self.s.ingest('bb',[dict(external_id='thr_demo',title='Release',text=json.dumps(dict(status=status,prompts=[dict(at=(turn or self.now-10)*1000,text='Work')],assistant=report)),occurred_at=at or self.now)])

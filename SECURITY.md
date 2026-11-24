@@ -17,7 +17,7 @@ Source adapters restrict operations to reads. OAuth consent may grant broader se
 - Starting an agent opens an editable BB composer. The chosen agent can have much broader permissions than the analyzer; its BB permissions and the user's task control execution.
 - Plugin settings, local configuration, installed CLI binaries, provider-managed policy and the OS account are trusted. Protect them from unauthorized edits.
 - OAuth helpers bind to loopback temporarily. No router forwarding, public webhook receiver, cloud host or public laptop port is needed.
-- Live PR review and error-fixer triggers are not shipped/enabled in this public version.
+- Unattended review and error-triage launches require explicit dispatcher configuration. Dispatch uses the configured repository and application. Each agent receives a private, read-only assignment. Its effective permissions are those of the BB provider.
 
 ## Reporting a vulnerability
 

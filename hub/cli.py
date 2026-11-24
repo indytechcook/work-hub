@@ -2,6 +2,7 @@
 import json
 import os
 import sys
+import subprocess
 from pathlib import Path
 from store import Store
 
@@ -13,6 +14,15 @@ def main():
     op=request.get('op');args=request.get('args',{})
     if not isinstance(args,dict):raise ValueError('Expected arguments object')
     methods={'create_work','record_thread_name','rename_work','configure_tracking','legacy_page','keep_legacy','save_handoff','acknowledge_changes','save_intent','save_day_plan','acknowledge_attention','work_detail','work_index','associate','work_options','thread_context','snapshot','ingest','source_failure','claim_analysis','apply_analysis','analysis_failed','mutate','acknowledge','export','claim_reminder','reminder_payload','finish_reminder','import_snapshot','register_agent_thread','ensure_context','context_packet','queue_completion','completion_page','resolve_completion'}
+    if op in ('watch_health','watch_replies','watch_reply','dispatch_jobs'):
+        from watch import health,replies,register_watch
+        from dispatch import tick
+        store=Store(STATE/'work.db')
+        try:result={'watch_health':health,'watch_replies':replies,'watch_reply':register_watch,'dispatch_jobs':tick}[op](store,**args)
+        except (RuntimeError,OSError,subprocess.TimeoutExpired) as error:
+            raise ValueError('Native Work Hub job failed ('+type(error).__name__+'); inspect the job and retry.') from None
+        finally:store.close()
+        print(json.dumps({'ok':True,'result':result}));return
     if op in ('close_out','close_out_status','close_out_due'):
         from closeout import run, nightly_due
         store=Store(STATE/'work.db')

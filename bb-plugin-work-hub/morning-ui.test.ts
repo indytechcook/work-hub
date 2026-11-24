@@ -45,6 +45,10 @@ s.close()`;
   const thread=makeThreadResponse({id:'thr_morning',archivedAt:null,deletedAt:null});
   let meta={},spawns=0;
   host=createFakePluginHost({pluginId:'work-hub',settings:{hubPath:root,pythonPath:python,collectThreads:true,storageFile:cfg,storageBackend:'json'},sdk:{threads:{list:async()=>[],get:async()=>thread,getPluginMetadata:async()=>meta,spawn:async args=>{
+    if(args.title?.startsWith('Close-out')){
+     assert.equal(args.visibility,'visible');assert.match(String(args.prompt),/close-out status/);
+     return makeThreadResponse({id:'thr_closeout',archivedAt:null,deletedAt:null});
+    }
     spawns++;meta=args.pluginMetadata??{};assert.equal(args.projectId,'proj_fixture');assert.match(String(args.prompt),/one question at a time/);
     assert.match(String(args.prompt),/work_hub_morning_question/);
     assert.match(String(args.prompt),/invoke \/review-branch unless the user explicitly requests a lite review/);
@@ -53,7 +57,7 @@ s.close()`;
   }}}});
   await plugin(host.bb);
   const call=(name:string,input:unknown)=>host!.harness.behavior.callRpc(name,input) as Promise<any>;
-  const names=['snapshot','workDetail','workIndex','startMorning','morningStatus','saveDayPlan'];
+  const names=['snapshot','workDetail','workIndex','openCloseOut','startMorning','morningStatus','saveDayPlan'];
   const app=await loadPluginApp(()=>import('./app'));
   slot=renderSlot(app.navPanels[0],{subPath:''},{rpc:Object.fromEntries(names.map(name=>[name,(args:unknown)=>call(name,args??null)]))});
   const start=await screen.findByRole('button',{name:'Start morning'});
@@ -100,6 +104,10 @@ s.close()`;
   assert.equal((await call('snapshot',null)).today.version,saved.today.version);
   await tool('work_hub_morning_plan',{version:saved.today.version,work_ids:[wid],note:saved.today.note});
   await assert.rejects(()=>tool('work_hub_morning_plan',{version:saved.today.version,work_ids:[],note:'Stale change'}));
+  fireEvent.click(screen.getByRole('button',{name:'Finish day'}));
+  await waitFor(()=>assert.ok(JSON.stringify(slot!.inspection.navigateCalls).includes('thr_closeout')));
+  assert.equal(screen.queryByRole('dialog'),null);
+  await waitFor(async()=>assert.equal((await call('closeOutStatus',null)).report?.date,saved.today.date),{timeout:15000});
   fireEvent.click(screen.getByRole('button',{name:'Edit today’s plan'}));
   const dialog=await screen.findByRole('dialog');
   assert.ok(within(dialog).getByRole('button',{name:'Save today’s plan'}));

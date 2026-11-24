@@ -23,7 +23,9 @@ For page sections, sidebar content, agent launch, associations or terminal acces
 
 ## Close out the day
 
-For “close out” or an end-of-day cleanup, use `bb work-hub close-out`, then poll `bb work-hub close-out status` until `running` is false. Check `error` and the report date. Summarize source coverage, duplicate and relationship findings, carryover, open follow-ups and proposed priorities. Distinguish actions the pass applied from candidates awaiting review. The dashboard has the same report under **Finish day**. For a checkpoint on one thread, use `work-hub-checkpoint`.
+For “close out”, use `bb work-hub close-out` to open a visible close-out thread and show its link. The thread follows the running report through `bb work-hub close-out status`. For a checkpoint on one conversation, use `work-hub-checkpoint`.
+
+After an authorized question is sent via Slack or Gmail, use `work_hub_watch_reply` with the original conversation URL and the individual sent message ID. Reply watches run when the operator configures the BB reply-check Automation. Check the original reply before resolving a commitment.
 
 ## Create personal work
 

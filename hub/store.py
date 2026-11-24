@@ -467,7 +467,7 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, Labe
                 'analysis':dict(self.db.execute("SELECT SUM(analysis_state='pending') pending,SUM(analysis_state='running') running,SUM(analysis_error IS NOT NULL) errors FROM events").fetchone()),
                 'analyzer':json.loads(self.db.execute("SELECT value FROM meta WHERE key='analyzer_last_result'").fetchone()[0]) if self.db.execute("SELECT 1 FROM meta WHERE key='analyzer_last_result'").fetchone() else None,
                 'reminders':[dict(r) for r in self.db.execute('SELECT id,day,state,created_at,finished_at FROM reminders ORDER BY created_at DESC LIMIT 20')],
-                'jobs':[dict(r) for r in self.db.execute('SELECT * FROM jobs ORDER BY updated_at DESC LIMIT 50')],
+                'jobs':[dict(r) for r in self.db.execute("SELECT * FROM jobs WHERE state<>'baseline' ORDER BY updated_at DESC LIMIT 50")],
                 'seq':self.db.execute('SELECT COALESCE(MAX(seq),0) FROM changes').fetchone()[0],'now':now}
 
     def acknowledge(self, seq):

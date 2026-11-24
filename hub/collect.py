@@ -91,24 +91,27 @@ class Collector:
                 # New Gmail messages are immutable; only unseen IDs require a body read.
                 if message_ids.get(tid) and message_ids[tid].issubset(known):continue
             time.sleep(2)
-            raw=g.google_get('https://gmail.googleapis.com/gmail/v1/users/me/threads/'+tid,{'format':'full'})
-            raw_messages=raw.get('messages',[]);messages=[]
-            for m in raw_messages[-50:]:
-                payload=m.get('payload',{});body='\n'.join(g.plain_parts(payload))
-                messages.append({'id':m['id'],'internal_date':m.get('internalDate'),'headers':[h for h in payload.get('headers',[]) if h['name'].lower() in {'from','to','cc','subject','date'}],'text':body[:12000],'text_truncated':len(body)>12000,'plain_text_available':bool(body),'snippet':m.get('snippet','')})
-            incomplete=len(raw_messages)>50 or any(m['text_truncated'] or not m['plain_text_available'] for m in messages)
-            if not messages:continue
-            # Preserve the newest evidence within the receipt limit, never cut JSON in half.
-            bounded=[];size=0
-            for message in reversed(messages):
-                cost=len(json.dumps(message,ensure_ascii=False))
-                if size+cost>44000:incomplete=True;break
-                bounded.insert(0,message);size+=cost
-            headers={h['name'].lower():h['value'] for h in messages[-1]['headers']}
-            items.append(receipt(tid,headers.get('subject','Email conversation'),dict(messages=bounded,message_ids=[m['id'] for m in raw_messages[-500:]],coverage='Partial plain-text excerpt' if incomplete else 'Latest 50 plain-text messages; attachments excluded'),occurred_at=max(float(m['internal_date'])/1000 for m in messages),url=f'https://mail.google.com/mail/u/0/#all/{tid}'))
+            item=self.gmail_thread(g,tid)
+            if item:items.append(item)
             if len(items)>=20:
                 self.store.ingest('gmail',items,scope=scope,complete=False);items=[]
         return self.save('gmail',items,scope,{'through':now},complete)
+    def gmail_thread(self,g,tid):
+        raw=g.google_get('https://gmail.googleapis.com/gmail/v1/users/me/threads/'+tid,{'format':'full'})
+        raw_messages=raw.get('messages',[]);messages=[]
+        for m in raw_messages[-50:]:
+            payload=m.get('payload',{});body='\n'.join(g.plain_parts(payload))
+            messages.append({'id':m['id'],'internal_date':m.get('internalDate'),'headers':[h for h in payload.get('headers',[]) if h['name'].lower() in {'from','to','cc','subject','date'}],'text':body[:12000],'text_truncated':len(body)>12000,'plain_text_available':bool(body),'snippet':m.get('snippet','')})
+        incomplete=len(raw_messages)>50 or any(m['text_truncated'] or not m['plain_text_available'] for m in messages)
+        if not messages:return None
+        # Preserve the newest evidence within the receipt limit, never cut JSON in half.
+        bounded=[];size=0
+        for message in reversed(messages):
+            cost=len(json.dumps(message,ensure_ascii=False))
+            if size+cost>44000:incomplete=True;break
+            bounded.insert(0,message);size+=cost
+        headers={h['name'].lower():h['value'] for h in messages[-1]['headers']}
+        return receipt(tid,headers.get('subject','Email conversation'),dict(messages=bounded,message_ids=[m['id'] for m in raw_messages[-500:]],coverage='Partial plain-text excerpt' if incomplete else 'Latest 50 plain-text messages; attachments excluded'),occurred_at=max(float(m['internal_date'])/1000 for m in messages),url=f'https://mail.google.com/mail/u/0/#all/{tid}')
     def calendar(self):
         g=self.google();now=dt.datetime.now(dt.timezone.utc);token='';items=[];complete=True
         for _ in range(50):

@@ -44,7 +44,7 @@ The original command proceeds from refresh and briefing to dispatch, human decis
 
 ## Deep close-out
 
-Open **Finish day → Run close-out**, or run `bb work-hub close-out`. Read the saved report in Finish day or with `bb work-hub close-out status`. **Edit return note** opens the existing day editor. Start Morning includes the latest close-out in its briefing.
+Choose **Finish day** or run `bb work-hub close-out` to open a visible close-out thread. It runs reconciliation and summarizes the new report, coverage gaps and carryover. Read the saved report with `bb work-hub close-out status`. **Edit return note** opens the existing day editor. Start Morning includes the latest close-out in its briefing.
 
 The pass syncs opted-in sources with their normal windows and locks, reuses scans less than ten minutes old, repairs canonical reference indexes, requeues missing reads from explicitly attached Slack links and removes redundant memberships. A source card can be consolidated when it already belongs to one other item, its primary card is untouched, and saved plans and explicit association choices are preserved. Matching titles and possible relationships from PR or issue links appear for review. The report also includes source gaps, unfinished planned work, the saved return note, overdue follow-ups, recent completions, captured running conversations and up to three suggested priorities. The report uses current captured evidence. Human decisions, external actions and worktree cleanup are separate.
 
