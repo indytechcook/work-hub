@@ -72,6 +72,9 @@ class NativeJobTests(unittest.TestCase):
             self.assertEqual(replies(s)["checked"], 0)
         arrival = next(a for a in s.attention() if a["kind"] == "reply")
         self.assertIn(cid, arrival["work_ids"])
+        self.assertEqual(
+            (arrival["at"], arrival["occurred_at"], arrival["rank"]), (12000, 4, 0)
+        )
 
     def test_dispatch_skips_backlog_and_recovers_spawn_receipt(self):
         s = self.store

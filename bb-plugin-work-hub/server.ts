@@ -337,7 +337,7 @@ export default async function plugin(bb:BbPluginApi) {
   if(argv[0]==='reply-check'&&argv.length===1){
    const result=z.object({arrivals:z.number(),errors:z.number()}).parse(await core('watch_replies',{},240000));
    if(result.arrivals)bb.realtime.publish('changed',{});
-   return {exitCode:result.errors?1:0,stdout:result.errors?'A watched source could not be read; queued for retry.':result.arrivals?String(result.arrivals)+' new replies':''};
+   return {exitCode:result.errors?1:0,stdout:result.errors?'A watched source could not be read; queued for retry.':result.arrivals?String(result.arrivals)+(result.arrivals===1?' new reply':' new replies'):''};
   }
   if(argv[0]==='dispatch'&&(argv.length===1||argv.length===2)){
    const result=z.object({message:z.string()}).parse(await core('dispatch_jobs',{pilot:argv[1],parent:argv[1]?ctx.threadId:undefined},420000));

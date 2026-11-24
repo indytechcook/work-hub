@@ -173,16 +173,17 @@ class PresentationMixin:
                 result.append(dict(token=token,kind='health',entity_id=name,title='Check '+name+' coverage',
                     reason=health['detail'],rank=0,work_ids=[],source=name,at=health['since'],occurred_at=None,received_at=None,
                     seen=self._record('attention_seen:'+token,None) is not None))
-        for row in self.db.execute("SELECT key,value FROM meta WHERE key LIKE 'reply_watch:%' AND json_extract(value,'$.reply') IS NOT NULL"):
+        for row in self.db.execute("""SELECT m.value,c.title FROM meta m JOIN conversations c ON c.id=json_extract(m.value,'$.cid')
+                WHERE m.key LIKE 'reply_watch:%' AND json_extract(m.value,'$.reply') IS NOT NULL"""):
             watch=json.loads(row['value'])
             if watch.get('obligation') and not self.db.execute("SELECT 1 FROM obligations WHERE id=? AND state='open'",(watch['obligation'],)).fetchone():continue
             token=fingerprint('reply',watch['cid'],watch['reply'])
             if any(a['token']==token for a in result):continue
             work_ids=self._work_ids(watch['cid'])
             if watch.get('work') and watch['work'] not in work_ids:work_ids.append(watch['work'])
-            result.append(dict(token=token,kind='reply',entity_id=watch['cid'],title='Reply received · '+watch['source'],
-                reason='Open the watched conversation to check the answer.',rank=1,work_ids=work_ids,source=watch['source'],
-                at=watch['at'],occurred_at=watch['at'],received_at=watch['checked'],seen=self._record('attention_seen:'+token,None) is not None))
+            result.append(dict(token=token,kind='reply',entity_id=watch['cid'],title='Reply received · '+row['title'],
+                reason='Open the watched conversation to check the answer.',rank=0,work_ids=work_ids,source=watch['source'],
+                at=watch['checked'],occurred_at=watch['at'],received_at=watch['checked'],seen=self._record('attention_seen:'+token,None) is not None))
         result.sort(key=lambda a:(a['seen'],a['rank'],-a['at'],a['token']))
         return result
 
