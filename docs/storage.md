@@ -24,7 +24,7 @@ Objects are **replaced, not merged**. Missing JSON override files in BB mode, ma
 | `config` | Identity, selected sources, account/workspace/application settings; see examples/config.json. |
 | `analyzer` | Explicit `provider`, optional `model` and CLI-only `executable`. |
 | `gemini_credentials` | Gemini Developer API `api_key` for the selected project. |
-| `policy` | Analysis allowance and optional catch-up policy. |
+| `policy` | Provider usage threshold and completion-review switches. |
 | `bb_context` | Output of `bb status --json` for scheduler setup. |
 | `google_client` | Downloaded Google Desktop OAuth client JSON. |
 | `google_tokens` | Google authorized-user credentials, managed by the sign-in helper. |
@@ -45,7 +45,7 @@ A bundle contains record names at the top level:
 {
   "config": {"sources": []},
   "analyzer": {"provider": "claude"},
-  "policy": {"max_analyses_per_day": 120}
+  "policy": {"max_provider_used_percent": 90}
 }
 ```
 

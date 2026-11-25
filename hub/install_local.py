@@ -46,7 +46,7 @@ def main():
     if args.dry_run:
         print(json.dumps({'sources':sources,'jobs':[{k:job[k] for k in ('Label','ProgramArguments','StartInterval')} for job in jobs.values()]}));return
     folder.mkdir(exist_ok=True)
-    if Store(STATE).read('policy') is None:Store(STATE).write('policy',{'max_analyses_per_day':120})
+    if Store(STATE).read('policy') is None:Store(STATE).write('policy',{'max_provider_used_percent':90})
     written=[];loaded=[]
     try:
         for kind,job in jobs.items():

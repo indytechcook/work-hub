@@ -50,7 +50,7 @@ class DoctorTests(unittest.TestCase):
         self.write({
             'config': {'identity': {'name': 'Ada', 'email': 'ada@corp.test', 'timezone': 'UTC'},
                        'sources': ['github', 'linear', 'slack']},
-            'analyzer': {'provider': 'claude'}, 'policy': {'max_analyses_per_day': 10},
+            'analyzer': {'provider': 'claude'}, 'policy': {'max_provider_used_percent': 90},
             'bb_context': {'project': {'id': 'proj_fixture'}},
         })
         checks = self.run_checks(codes={'gh': 1, 'launchctl': 1})

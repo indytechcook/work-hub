@@ -82,7 +82,7 @@ cp examples/config.json ~/work-hub-config.json
 # .venv/bin/python hub/configure.py set analyzer --input-file examples/analyzer.codex.json
 
 # Daily cap on background model calls.
-echo '{"max_analyses_per_day":120}' | .venv/bin/python hub/configure.py set policy --input-file -
+echo '{"max_provider_used_percent":90}' | .venv/bin/python hub/configure.py set policy --input-file -
 
 # Check the analyzer with synthetic data (a few live model calls).
 .venv/bin/python hub/analyze.py --self-test --provider claude

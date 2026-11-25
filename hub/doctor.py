@@ -124,9 +124,9 @@ def check_config(report, state, run, which):
         check_source(report, store, settings, source, run, which)
     check_analyzer(report, state, store, run)
     if not record_exists(store, 'policy'):
-        report.add('info', 'Daily allowance', 'no policy record; the installer sets 120 analyses/day')
+        report.add('info', 'Provider usage gate', 'no policy record; background analysis pauses at 90% provider usage')
     else:
-        report.add('ok', 'Daily allowance', 'policy record set')
+        report.add('ok', 'Provider usage gate', 'policy record set')
     context = store.read('bb_context') or {}
     project = (context.get('project') or {}).get('id') if isinstance(context, dict) else None
     if isinstance(project, str) and project.startswith('proj_'):

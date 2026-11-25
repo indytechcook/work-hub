@@ -126,15 +126,15 @@ Google receives the classification instructions, configured name, email and time
 
 ### Daily allowance and provider checks
 
-Store the analysis allowance:
+Background analysis has no fixed daily cap. It keeps working while the provider reports headroom and pauses at `max_provider_used_percent` (default 90), leaving the rest for interactive work:
 
 ```bash
 .venv/bin/python hub/configure.py set policy --input-file - <<'JSON'
-{"max_analyses_per_day":120}
+{"max_provider_used_percent":90}
 JSON
 ```
 
-Daily reservations count attempted background calls and reset at UTC midnight. Synthetic checks consume usage separately. Choose any higher catch-up allowance deliberately; never inherit another person's budget.
+Codex quota is read from `codex app-server` (`account/rateLimits/read`) with the classifier's `CODEX_HOME`, at most every five minutes and without a model call. Claude quota comes from the `rate_limit_event` on each classifier call. Gemini is metered by the API; provider errors stop a run. A paused run resumes at the provider's reported reset time. Synthetic checks consume usage separately.
 
 Run synthetic tests for your provider:
 
@@ -322,7 +322,7 @@ Restart with `launchctl bootstrap` and the same arguments. Disabling the plugin 
 | Ledger unavailable | Absolute `hubPath`, `pythonPath`, directory permissions. |
 | Missing BB conversations | Capture opt-in, seven-day scope, archive state, latest sync. |
 | Connected source but no data | Correct account/scope, collector status, bounds and partial results. |
-| Analysis pending | Explicit provider, CLI login or Gemini credential record, daily budget, retry time, private worker logs. |
+| Analysis pending | Explicit provider, CLI login or Gemini credential record, provider usage gate, retry time, private worker logs. |
 | Terminal works but job fails | Captured PATH, OS keychain access, isolated Codex authentication if selected. |
 | Expired connector | Renew the appropriate sign-in; retain checkpoints and never print tokens. |
 | Delayed during sleep | Local jobs require an awake logged-in computer. |

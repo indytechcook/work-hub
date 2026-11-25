@@ -43,13 +43,13 @@ The encrypted `policy` record accepts these additional switches:
 
 ```json
 {
-  "max_analyses_per_day": 120,
+  "max_provider_used_percent": 90,
   "completion_review_enabled": true,
   "auto_resolve_confirmed": false
 }
 ```
 
-Preserve existing budget/catch-up fields when updating the whole policy record. Read settings privately; never print credentials. Automatic review queues a bounded sweep of open commitments, rechecks assessed items after six hours, and requeues affected assessments when new referenced evidence arrives. Manual review requests work regardless of the automatic-sweep switch. Completion checks and normal extraction alternate within the existing daily budget. Budget exhaustion leaves checks queued until the UTC reset; changing the budget is an explicit configuration choice.
+Preserve existing fields when updating the whole policy record; `max_analyses_per_day` and `catch_up` are obsolete and ignored. Read settings privately; never print credentials. Automatic review queues a bounded sweep of open commitments, rechecks assessed items after six hours, and requeues affected assessments when new referenced evidence arrives. Manual review requests work regardless of the automatic-sweep switch. Completion checks and normal extraction alternate, and each worker run keeps going for up to ten minutes while backlog remains. There is no fixed daily cap: a run pauses when the provider reports usage at `max_provider_used_percent` (default 90) or a reached limit, and queued work resumes at the provider's reset time.
 
 Automatic resolution defaults off. If explicitly enabled, only current confirmed-complete assessments can fulfill a local commitment. Work status, focus, seen state, linked PR/issue status and external messages remain separate. Every assessment is saved to a local audit table; reopening is a version-checked manual operation.
 
@@ -62,7 +62,7 @@ Synthetic tests cover repeat requests, exact identity matching, manual associati
 
 ## Immediate return points and tracking ownership
 
-With BB collection enabled, Work Hub captures idle, failed and pending-interaction states immediately, with periodic reconciliation for missed events. Final reports are labeled **captured BB state**, not verified completion. Agents can use `work_hub_checkpoint` for structured progress, remaining work, next action, blockers and evidence. These writes require no background analyzer budget. The latest return point appears in work context, the resume picker and new-agent context. Blocked, failed, input-needed and review-ready reports can enter attention; routine idle reports do not.
+With BB collection enabled, Work Hub captures idle, failed and pending-interaction states immediately, with periodic reconciliation for missed events. Final reports are labeled **captured BB state**, not verified completion. Agents can use `work_hub_checkpoint` for structured progress, remaining work, next action, blockers and evidence. These writes need no background analyzer call. The latest return point appears in work context, the resume picker and new-agent context. Blocked, failed, input-needed and review-ready reports can enter attention; routine idle reports do not.
 
 Chosen intent and commitments remain separate. Checkpoints cannot close work or promises. Old reports cannot overwrite a newer turn, and repeated captures do not create repeat alerts. Collection retains its existing seven-day/unarchived scope; events during downtime outside that scope are not guaranteed to be recovered.
 

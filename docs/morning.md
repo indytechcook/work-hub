@@ -32,7 +32,7 @@ Ordinary sources use the existing Work Hub configuration and credentials. The op
 | `dailybot_checkin` | The owner's check-in ID. Requires the authenticated Dailybot CLI on the plugin host. |
 | `replica_report` | Optional administrator-configured `server` (absolute path to a trusted restricted Postgres MCP launcher) and `select` (reviewed single read returning `title`, `detail` and optional HTTPS `url` columns). The optional `:two_business_days_ago` placeholder uses the configured timezone and skips weekends. The server must enforce restricted mode and use a read-only database role. No program, SQL or path is accepted from a thread or source excerpt. |
 
-The active interactive provider receives the evidence the thread requests. Background extraction keeps its own provider choice, permissions and budget. Progress lives in the plugin process. The latest finished brief, daily thread identity, confirmed plans and project comparison state live in the local ledger. Reloading during a run releases the worker and the morning thread can request a fresh run.
+The active interactive provider receives the evidence the thread requests. Background extraction keeps its own provider choice, permissions and provider usage gate. Progress lives in the plugin process. The latest finished brief, daily thread identity, confirmed plans and project comparison state live in the local ledger. Reloading during a run releases the worker and the morning thread can request a fresh run.
 
 ## Coverage limits
 

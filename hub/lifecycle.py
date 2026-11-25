@@ -195,13 +195,10 @@ class LifecycleMixin:
         rows=[dict(r) for r in self.db.execute('SELECT r.*,o.title,o.state commitment_state,o.version current_version,o.work_id,c.url FROM completion_reviews r JOIN obligations o ON o.id=r.obligation_id JOIN conversations c ON c.id=o.conversation_id WHERE (?="all" OR (?="pending" AND r.state IN ("queued","running","error")) OR r.verdict=?) ORDER BY r.requested_at DESC,r.obligation_id LIMIT 50 OFFSET ?',(*args,offset))]
         for row in rows:row['evidence']=json.loads(row['evidence'])
         counts={r['state']:r['n'] for r in self.db.execute('SELECT state,count(*) n FROM completion_reviews GROUP BY state')}
-        from storage import Store as SettingsStore
-        from worker import budget
-        policy=SettingsStore(self.path.parent).read('policy') or {'max_analyses_per_day':120}
-        limit,_=budget(self,policy,time.time())
         key='analysis_runs:'+dt.datetime.now(dt.timezone.utc).date().isoformat()
-        used=int(self._record(key,0))
-        return {'items':rows,'total':total,'has_more':offset+len(rows)<total,'counts':counts,'budget':{'limit':limit,'used':used,'remaining':max(0,limit-used)}}
+        quota=self._record('provider_usage',None) or {}
+        usage={'runs_today':int(self._record(key,0)),'allowed':quota.get('allowed',True),'used_percent':quota.get('used_percent'),'resume_at':quota.get('resume_at') if not quota.get('allowed',True) else None}
+        return {'items':rows,'total':total,'has_more':offset+len(rows)<total,'counts':counts,'usage':usage}
 
     def claim_completion(self):
         now=time.time()

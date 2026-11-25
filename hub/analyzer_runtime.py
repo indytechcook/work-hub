@@ -9,6 +9,14 @@ from storage import Store
 
 
 PROVIDERS = ('claude', 'codex', 'gemini')
+# Claude's latest rate-limit report from a classifier call, read by the worker's quota gate.
+_rate_limit = {}
+
+
+def take_rate_limit():
+    info = dict(_rate_limit)
+    _rate_limit.clear()
+    return info or None
 
 
 def settings(state, provider=None):
@@ -62,7 +70,8 @@ def claude_result(stdout):
             if final is not None:raise RuntimeError('Classifier returned multiple results')
             final=event
         elif kind=='rate_limit_event':
-            continue
+            if isinstance(event.get('rate_limit_info'),dict):
+                _rate_limit.clear();_rate_limit.update(event['rate_limit_info'])
         elif kind=='system' and event.get('subtype') in ('status','thinking_tokens'):
             continue
         elif kind=='system':
