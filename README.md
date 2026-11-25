@@ -95,7 +95,7 @@ Install dependencies using SETUP.md, then run:
 .venv/bin/python -m unittest discover -s hub -p 'test_*.py'
 .venv/bin/python -m unittest discover -s connectors/google -p 'test_*.py'
 node --experimental-strip-types --test bb-plugin-work-hub/reference-links.test.ts bb-plugin-work-hub/launch-context.test.ts bb-plugin-work-hub/context-hook.test.ts bb-plugin-work-hub/handoff-hook.test.ts bb-plugin-work-hub/work-name.test.ts bb-plugin-work-hub/rename-work.test.ts
-./bb-plugin-work-hub/node_modules/.bin/tsx --test bb-plugin-work-hub/rename-rpc.test.ts
+./bb-plugin-work-hub/node_modules/.bin/tsx --test bb-plugin-work-hub/rename-rpc.test.ts bb-plugin-work-hub/chief-of-staff-notify.test.ts
 ./bb-plugin-work-hub/node_modules/.bin/tsc --noEmit -p bb-plugin-work-hub/tsconfig.json
 bb plugin build ./bb-plugin-work-hub
 ```

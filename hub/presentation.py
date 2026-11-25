@@ -9,6 +9,7 @@ from datetime import datetime
 from settings import timezone as local_timezone
 import hashlib
 import unicodedata
+from routing import OB_IN_WORK
 
 
 def fingerprint(*parts):
@@ -199,14 +200,14 @@ class PresentationMixin:
     def work_detail(self, work_id):
         row=self.db.execute('SELECT * FROM work WHERE id=?',(work_id,)).fetchone()
         if not row:raise ValueError('This work no longer exists')
-        return dict(work=self._work_detail(row),obligations=[self._obligation_detail(r) for r in self.db.execute("SELECT o.* FROM obligations o JOIN work_memberships m ON m.conversation_id=o.conversation_id WHERE m.work_id=? ORDER BY o.state IN ('open','needs_review') DESC,o.due_at IS NULL,o.due_at,o.updated_at DESC",(work_id,))],now=time.time())
+        return dict(work=self._work_detail(row),obligations=[self._obligation_detail(r) for r in self.db.execute("SELECT o.* FROM obligations o JOIN work_memberships m ON m.conversation_id=o.conversation_id WHERE m.work_id=? AND "+OB_IN_WORK+" ORDER BY o.state IN ('open','needs_review') DESC,o.due_at IS NULL,o.due_at,o.updated_at DESC",(work_id,))],now=time.time())
 
     def work_index(self, query='', status='all', offset=0):
         if not isinstance(query,str) or len(query)>200 or status not in ('all','active','waiting','done') or type(offset)!=int or not 0<=offset<=100000:raise ValueError('Invalid work search')
         where="""(EXISTS(SELECT 1 FROM work_memberships m WHERE m.work_id=w.id) OR EXISTS(SELECT 1 FROM meta WHERE key='standalone:'||w.id))
           AND (?='all' OR w.status=?) AND (instr(lower(w.title),lower(?))>0 OR instr(lower(COALESCE(g.names,'')),lower(?))>0
           OR EXISTS(SELECT 1 FROM conversations c JOIN work_memberships m ON m.conversation_id=c.id WHERE m.work_id=w.id AND instr(lower(c.title),lower(?))>0)
-          OR EXISTS(SELECT 1 FROM obligations o JOIN work_memberships m ON m.conversation_id=o.conversation_id WHERE m.work_id=w.id AND instr(lower(o.title),lower(?))>0)
+          OR EXISTS(SELECT 1 FROM obligations o JOIN work_memberships m ON m.conversation_id=o.conversation_id WHERE m.work_id=w.id AND instr(lower(o.title),lower(?))>0 AND """+OB_IN_WORK+""")
           OR EXISTS(SELECT 1 FROM meta WHERE key='intent:'||w.id AND instr(lower(value),lower(?))>0)
           OR EXISTS(SELECT 1 FROM work_memberships sm JOIN conversations sc ON sc.id=sm.conversation_id JOIN events se ON se.id=sc.latest_event WHERE sm.work_id=w.id AND sc.source='slack' AND instr(lower(se.text || ' ' || slack_search_text(se.text)),lower(?))>0))"""
         args=(status,status,query,query,query,query,query,query)
@@ -220,6 +221,6 @@ class PresentationMixin:
         items=[]
         for row in rows:
             w=dict(row);intent=self.intent(w['id'])
-            count=self.db.execute("SELECT COUNT(*) FROM obligations o JOIN work_memberships m ON m.conversation_id=o.conversation_id WHERE m.work_id=? AND o.state IN ('open','needs_review')",(w['id'],)).fetchone()[0]
+            count=self.db.execute("SELECT COUNT(*) FROM obligations o JOIN work_memberships m ON m.conversation_id=o.conversation_id WHERE m.work_id=? AND o.state IN ('open','needs_review') AND "+OB_IN_WORK,(w['id'],)).fetchone()[0]
             items.append(dict(id=w['id'],title=w['title'],status=w['status'],focus=w['focus'],project=w['area'],next_action=intent['next_action'] or w['next_action'],open_count=count))
         return dict(items=self.label_work_rows(items),total=total,has_more=offset+len(items)<total)

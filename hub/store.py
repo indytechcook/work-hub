@@ -15,6 +15,8 @@ from source_preview import slack_preview
 from labels import LabelMixin, slack_label, slack_search_text
 
 from lifecycle import LifecycleMixin, SCHEMA as LIFECYCLE_SCHEMA
+from routing import SCHEMA as ROUTING_SCHEMA, OB_IN_WORK, CANDIDATES_SQL
+from your_work import YourWorkMixin
 
 SCHEMA = '''
 CREATE TABLE IF NOT EXISTS sources(name TEXT PRIMARY KEY, state TEXT NOT NULL DEFAULT 'not_connected', scope TEXT NOT NULL DEFAULT '', checkpoint TEXT, checked_at REAL, last_success REAL, error TEXT);
@@ -55,7 +57,7 @@ def text(value, limit=2000):
     return value
 
 
-class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, LabelMixin):
+class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, LabelMixin, YourWorkMixin):
     def __init__(self, path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -65,7 +67,7 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, Labe
         self.db.create_function('slack_search_text',1,slack_search_text,deterministic=True)
         self.db.execute('PRAGMA journal_mode=WAL')
         self.db.execute('PRAGMA foreign_keys=ON')
-        self.db.executescript(SCHEMA+LIFECYCLE_SCHEMA)
+        self.db.executescript(SCHEMA+LIFECYCLE_SCHEMA+ROUTING_SCHEMA)
         with self.db:
             for source in SOURCES:
                 self.db.execute('INSERT OR IGNORE INTO sources(name) VALUES (?)', (source,))
@@ -178,6 +180,11 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, Labe
             result = dict(row)
             result['lease_token'] = token
             result['obligations'] = [dict(r) for r in self.db.execute("SELECT id,title,owner,direction,state,due_at FROM obligations WHERE conversation_id=? ORDER BY updated_at DESC LIMIT 100",(row['conversation_id'],))]
+            if row['source']=='meetings':
+                # Meetings cover several topics: offer existing work so each commitment can be filed where it belongs.
+                routes={r[0]:r[1] for r in self.db.execute('SELECT obligation_id,work_id FROM obligation_routes WHERE obligation_id IN (SELECT id FROM obligations WHERE conversation_id=?)',(row['conversation_id'],))}
+                for o in result['obligations']:o['work_id']=routes.get(o['id'])
+                result['work_candidates']=[{'id':r['id'],'title':r['title'][:160]} for r in self.db.execute(CANDIDATES_SQL,(row['work_id'],))]
             return result
 
     def analysis_failed(self, event_id, token, error):
@@ -216,6 +223,8 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, Labe
             entries = result.get('obligations',[])
             if not isinstance(entries,list) or len(entries)>25:
                 raise ValueError('Too many obligations')
+            source=self.db.execute('SELECT source FROM conversations WHERE id=?',(event['conversation_id'],)).fetchone()[0]
+            routable={r[0] for r in self.db.execute(CANDIDATES_SQL,(event['work_id'],))} if source=='meetings' else set()
             for o in entries:
                 quote=text(o['quote'],3000)
                 if not quote or quote not in event['text']:
@@ -248,6 +257,16 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, Labe
                     resolution=excluded.resolution,version=obligations.version+1,updated_at=excluded.updated_at''',
                     (oid,event['work_id'],event['conversation_id'],event_id,quote,title,owner,direction,due,state,quote if state in ['fulfilled','cancelled'] else None,now))
                 self.change('obligation',oid,state+': '+title)
+                override=self.db.execute("SELECT value FROM meta WHERE key=?",('due_override:'+oid,)).fetchone()
+                if override:
+                    # A date you set yourself outranks the model's reading of the source.
+                    self.db.execute('UPDATE obligations SET due_at=? WHERE id=?',(json.loads(override[0]).get('due_at'),oid))
+                target=o.get('work_id')
+                if target and target in routable:
+                    # File the meeting commitment under the existing work it continues, and list the meeting there.
+                    self.db.execute('INSERT INTO obligation_routes VALUES (?,?,?) ON CONFLICT(obligation_id) DO UPDATE SET work_id=excluded.work_id,routed_at=excluded.routed_at',(oid,target,now))
+                    self.db.execute('INSERT OR IGNORE INTO conversation_work_links VALUES (?,?)',(event['conversation_id'],target))
+                    self.db.execute('UPDATE work SET updated_at=? WHERE id=?',(now,target))
             self.db.execute("UPDATE events SET analysis_state='done',analysis_error=NULL,lease_token=NULL,lease_until=NULL WHERE id=?",(event_id,))
             self._put_record('checkpoint:'+event['conversation_id'],dict(event_id=event_id,occurred_at=event['occurred_at'],received_at=event['received_at'],analyzed_at=now))
             self.change('return_point',event['work_id'],next_action)
@@ -268,6 +287,13 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, Labe
                 elif action in ['active','waiting','done']:
                     self.db.execute('UPDATE work SET status=?,updated_at=? WHERE id=?',(action,time.time(),id))
                 else:raise ValueError('Invalid work action')
+            elif kind=='obligation' and action=='due':
+                # Your own date (snooze, "still mine, by Friday"): '' clears it. Kept over later re-analysis.
+                due=None if not value else float(text(value,20))
+                if due is not None and not 0<due<4102444800:raise ValueError('Invalid due time')
+                changed=self.db.execute('UPDATE obligations SET due_at=?,version=version+1,updated_at=? WHERE id=? AND version=?',(due,time.time(),id,version)).rowcount
+                if not changed:raise ValueError('This follow-up changed; refresh before editing')
+                self._put_record('due_override:'+id,{'due_at':due})
             elif kind=='obligation':
                 if action not in ['open','fulfilled','cancelled']:raise ValueError('Invalid obligation action')
                 note=text(value,3000) if value is not None else None
@@ -446,7 +472,7 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, Labe
         selected=work_id if work_id in {w['id'] for w in associated} else (c['work_id'] if c else None)
         row=self.db.execute('SELECT * FROM work WHERE id=?',(selected,)).fetchone() if selected else None
         return {'work':self._work_detail(row) if row else None,'associated_work':self.label_work_rows(associated),
-                'obligations':[self._obligation_detail(r) for r in self.db.execute("SELECT o.* FROM obligations o JOIN work_memberships m ON m.conversation_id=o.conversation_id WHERE m.work_id=? AND o.state IN ('open','needs_review') ORDER BY o.due_at IS NULL,o.due_at,o.updated_at DESC",(row['id'],))] if row else [],
+                'obligations':[self._obligation_detail(r) for r in self.db.execute("SELECT o.* FROM obligations o JOIN work_memberships m ON m.conversation_id=o.conversation_id WHERE m.work_id=? AND o.state IN ('open','needs_review') AND "+OB_IN_WORK+" ORDER BY o.due_at IS NULL,o.due_at,o.updated_at DESC",(row['id'],))] if row else [],
                 'now':time.time()}
 
     def snapshot(self):
@@ -456,7 +482,7 @@ class Store(LifecycleMixin, PresentationMixin, TrackingMixin, HandoffMixin, Labe
             s.pop('checkpoint',None)
             if s['state']=='current' and s['last_success'] and now-s['last_success']>900:s['state']='stale'
         work=[dict(r) for r in self.db.execute('''SELECT w.* FROM work w WHERE EXISTS(SELECT 1 FROM meta WHERE key='standalone:'||w.id) OR EXISTS(SELECT 1 FROM work_memberships m WHERE m.work_id=w.id)
-              AND (w.focus=1 OR EXISTS(SELECT 1 FROM work_memberships m JOIN conversations c ON c.id=m.conversation_id WHERE m.work_id=w.id AND c.source='bb') OR EXISTS(SELECT 1 FROM work_memberships m JOIN obligations o ON o.conversation_id=m.conversation_id WHERE m.work_id=w.id AND o.state IN ('open','needs_review')) OR EXISTS(SELECT 1 FROM conversation_work_links l WHERE l.work_id=w.id))
+              AND (w.focus=1 OR EXISTS(SELECT 1 FROM work_memberships m JOIN conversations c ON c.id=m.conversation_id WHERE m.work_id=w.id AND c.source='bb') OR EXISTS(SELECT 1 FROM work_memberships m JOIN obligations o ON o.conversation_id=m.conversation_id WHERE m.work_id=w.id AND o.state IN ('open','needs_review') AND '''+OB_IN_WORK+''') OR EXISTS(SELECT 1 FROM conversation_work_links l WHERE l.work_id=w.id))
               ORDER BY focus DESC,updated_at DESC LIMIT 200''')]
         work=[self._work_detail(w) for w in work]
         seen=self.db.execute("SELECT value FROM meta WHERE key='last_seen_seq'").fetchone()

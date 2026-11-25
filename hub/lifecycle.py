@@ -7,6 +7,7 @@ import time
 import uuid
 from references import references, reference
 from source_preview import slack_messages
+from routing import OB_IN_WORK
 
 SCHEMA='''
 CREATE TABLE IF NOT EXISTS source_references(key TEXT NOT NULL,conversation_id TEXT NOT NULL,url TEXT NOT NULL,source TEXT NOT NULL,PRIMARY KEY(key,conversation_id));
@@ -94,7 +95,7 @@ class LifecycleMixin:
             if repeated and not old and candidates:
                 # A new explicit occurrence must not reuse an already fulfilled request.
                 previous=candidates.copy()
-                candidates={wid for wid in candidates if not self.db.execute("SELECT 1 FROM obligations o JOIN work_memberships m ON m.conversation_id=o.conversation_id WHERE m.work_id=? AND o.state IN ('fulfilled','cancelled') LIMIT 1",(wid,)).fetchone()}
+                candidates={wid for wid in candidates if not self.db.execute("SELECT 1 FROM obligations o JOIN work_memberships m ON m.conversation_id=o.conversation_id WHERE m.work_id=? AND o.state IN ('fulfilled','cancelled') AND "+OB_IN_WORK+" LIMIT 1",(wid,)).fetchone()}
                 self._put_record('prior_context:'+thread_id,sorted(previous-candidates))
             # New root conversations only auto-select an unambiguous exact match.
             wid=explicit['work_id'] if explicit else old['work_id'] if old else parent['work_id'] if parent else next(iter(candidates)) if len(candidates)==1 else cid

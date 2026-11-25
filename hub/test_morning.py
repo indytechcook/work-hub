@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 from morning import brief, morning_targets, original_detail, source_check, verify_links
-from morning_checks import projects, standup, submit_standup, review_candidate
+from morning_checks import owner_rules, projects, standup, submit_standup, review_candidate
 from store import Store, digest
 from test_support import isolate_storage
 
@@ -248,3 +248,18 @@ class MorningTests(unittest.TestCase):
                 "Already completed.",
             )
             self.assertEqual(cmd.call_count, 1)
+
+
+class OwnerRulesTests(unittest.TestCase):
+    def test_rules_file_becomes_one_row_per_heading_and_missing_files_are_reported(self):
+        with tempfile.TemporaryDirectory() as folder:
+            rules = Path(folder) / "rules.md"
+            rules.write_text("# Rules\n\n## Production\n- Change records first.\n\n## Communication\n- Drafts only.\n")
+            self.assertEqual(owner_rules({}), [])
+            result = owner_rules({"owner_rules": [str(rules), str(Path(folder) / "gone.md")]})[0]
+            self.assertEqual(result["label"], "Your standing rules")
+            titles = [row["title"] for row in result["items"]]
+            self.assertEqual(titles, ["rules.md · Production", "rules.md · Communication", "gone.md"])
+            self.assertIn("Change records first.", result["items"][0]["detail"])
+            self.assertEqual(result["items"][0]["url"], str(rules))
+            self.assertEqual(result["items"][2]["detail"], "Configured rules file unavailable")

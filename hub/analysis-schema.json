@@ -76,6 +76,12 @@
           },
           "explicit_resolution": {
             "type": "boolean"
+          },
+          "work_id": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -87,7 +93,8 @@
           "state",
           "quote",
           "confidence",
-          "explicit_resolution"
+          "explicit_resolution",
+          "work_id"
         ]
       }
     }

@@ -118,7 +118,8 @@ class GeminiTests(unittest.TestCase):
         quote = 'I will send the draft.'
         ledger.ingest('gmail', [{'external_id': 'fixture', 'title': 'Draft', 'text': quote}])
         obligation = {'existing_id': None, 'title': 'Send draft', 'owner': 'Alex', 'direction': 'i_owe',
-                      'due_at': None, 'state': 'open', 'quote': quote, 'confidence': 1, 'explicit_resolution': False}
+                      'due_at': None, 'state': 'open', 'quote': quote, 'confidence': 1, 'explicit_resolution': False,
+                      'work_id': None}
         self.respond(envelope({**EXTRACTION, 'obligations': [obligation]}))
         with patch.object(analyze, 'STATE', self.state), patch.object(analyze, 'identity', return_value=analyze.SYNTHETIC_IDENTITY):
             self.assertTrue(analyze.once(ledger)['applied'])

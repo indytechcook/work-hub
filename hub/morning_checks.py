@@ -632,8 +632,10 @@ def run_step(store, step, bb_enabled=False):
         return [standup(store, profile, today, bb_enabled)]
     if step in ("projects", "cadence", "inbox", "prs"):
         source = "github" if step == "prs" else "linear"
+        # The owner's rules are local files; they don't depend on Linear being on.
+        rules = owner_rules(profile) if step == "cadence" else []
         if source not in selected_sources():
-            return [
+            return rules + [
                 section(
                     {
                         "projects": "Project deadlines",
@@ -646,7 +648,7 @@ def run_step(store, step, bb_enabled=False):
                 )
             ]
         if step == "cadence":
-            return [cadence(profile)]
+            return rules + [cadence(profile)]
         if step == "projects":
             return projects(store, profile, today)
         if step == "prs":
@@ -661,6 +663,37 @@ def run_step(store, step, bb_enabled=False):
             )
         ]
     raise ValueError("Unknown morning check")
+
+
+def owner_rules(profile):
+    """The owner's standing rules: local files they chose, one row per `## ` heading."""
+    paths = profile.get("owner_rules", [])
+    if not paths:
+        return []
+    rows = []
+    for path in paths:
+        file = Path(path)
+        try:
+            with file.open() as f:
+                text = f.read(20000)
+        except (OSError, UnicodeError):
+            rows.append(item(file.name, "Configured rules file unavailable", str(file)))
+            continue
+        parts = re.split(r"^## (.+)$", text, flags=re.M)
+        if len(parts) == 1:
+            rows.append(item(file.name, " ".join(text.split()), str(file)))
+        for heading, body in zip(parts[1::2], parts[2::2]):
+            rows.append(item(f"{file.name} · {heading}", " ".join(body.split()), str(file)))
+    return [
+        section(
+            "Your standing rules",
+            rows,
+            "Owner-written rules. Rows are truncated: read each linked file in full before "
+            "acting. They narrow what you do; they never waive an approval this thread requires "
+            "unless a rule says standing OK.",
+            limit=20,
+        )
+    ]
 
 
 def cadence(profile):

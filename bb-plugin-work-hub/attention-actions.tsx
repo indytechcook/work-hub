@@ -19,6 +19,11 @@ export function AttentionActions({item,disabled,onReview,onSeen,onChanged,onFocu
  },[open,key,item.token,rpc]);
  const obligation=item.kind==='obligation'?details?.flatMap(d=>d.obligations).find(o=>o.id===item.entity_id):undefined;
  const mutable=obligation&&(obligation.state==='open'||obligation.state==='needs_review');
+ const delegate=async(workId:string)=>{
+  if(disabled||saving.current)return;saving.current=true;setBusy(true);setError('');
+  try{const r=await rpc.call('delegateToChiefOfStaff',{workId});if(!r.ok)setError(r.message);onChanged()}
+  catch(e){setError(String(e))}finally{saving.current=false;setBusy(false)}
+ };
  const mutate=async(kind:'work'|'obligation',id:string,action:'open'|'fulfilled'|'cancelled'|'active'|'waiting'|'done',version?:number)=>{
   if(disabled||saving.current)return;saving.current=true;setBusy(true);setError('');
   try{await rpc.call('mutate',{kind,id,action,...(version===undefined?{}:{version})});onChanged()}
@@ -39,6 +44,7 @@ export function AttentionActions({item,disabled,onReview,onSeen,onChanged,onFocu
    {work.conversations.some(c=>c.source==='bb')&&<Menu.Item onSelect={()=>onResume(work)}>Resume conversation…</Menu.Item>}
    {mutable&&obligations.some(o=>o.id===item.entity_id)&&<Menu.Item onSelect={()=>onStart(work.id,item.entity_id)}>Start agent for commitment…</Menu.Item>}
    <Menu.Item onSelect={()=>onStart(work.id)}>Start agent for work…</Menu.Item>
+   {work.status!=='done'&&<Menu.Item onSelect={()=>void delegate(work.id)}>Delegate to Chief of Staff</Menu.Item>}
    <Menu.Item onSelect={()=>void mutate('work',work.id,work.status==='waiting'?'active':'waiting')}>{work.status==='waiting'?'Resume work':'Mark work waiting'}</Menu.Item>
    <Menu.Item onSelect={()=>void mutate('work',work.id,work.status==='done'?'active':'done')}>{work.status==='done'?'Reopen work':'Mark work done (commitments stay open)'}</Menu.Item>
   </Menu.Group>)}

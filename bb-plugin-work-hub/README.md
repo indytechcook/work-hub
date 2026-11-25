@@ -4,7 +4,7 @@ A thin BB view over the portable local work ledger in `../hub`. Open **Work Hub*
 
 `bb work-hub status` reads the register. `bb work-hub sync` refreshes BB conversations only; the separate outbound collector polls external sources every ten minutes. The page refreshes automatically.
 
-Settings: `hubPath`, `pythonPath`, `collectThreads`, `remindersEnabled`. Set the absolute hub and Python paths first. Conversation capture and reminders default to off. Capture spans recent unarchived threads across projects, including hidden threads. Rebuild with `bb plugin build ./bb-plugin-work-hub`, then reload with `bb plugin reload work-hub`. Settings are read at plugin startup.
+Settings: `hubPath`, `pythonPath`, `collectThreads`, `threadProjects`, `includeHiddenThreads`, `autoContext`, `remindersEnabled`, `nightlyCloseOut`. Set the absolute hub and Python paths first. Conversation capture and reminders default to off. Capture reads recent unarchived threads in the projects listed in `threadProjects` (blank: every project) and skips hidden threads unless `includeHiddenThreads` is on. `bb work-hub doctor` is a read-only check of these settings plus the hub (paths, sign-ins, sources, scheduled jobs). Team install: [INSTALL.md](../INSTALL.md). Rebuild with `bb plugin build ./bb-plugin-work-hub`, then reload with `bb plugin reload work-hub`. Settings are read at plugin startup.
 
 The core stores state outside BB. Model-based analysis sends selected excerpts to the configured model service. See `../hub/README.md` for source coverage, credentials, background jobs, operating limits and qualification status. This is an experimental local application, not a marketplace release.
 

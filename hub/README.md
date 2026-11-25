@@ -26,7 +26,7 @@ See [SETUP.md](../SETUP.md) for installation, accounts, model selection and back
 | Linear | Open assigned issues in bound teams; known open follow-ups reread after closure; recent comments |
 | GitHub | Authored/review-requested open PR descriptions; not full review/comment history |
 | Slack | DMs/group DMs, your messages and mentions with thread replies; no file contents |
-| Granola | Initial seven days of notes/summaries, then updated notes; not full transcripts |
+| Granola | Initial seven days of notes/summaries, then updated notes; not full transcripts. Each commitment is filed under the existing work item it clearly continues; the rest stay with the meeting |
 | Better Stack | Configured application/environment, patterns seen over seven days; observation only |
 
 Check each source's scope, successful-read timestamp, errors and analysis backlog. An empty follow-up list is not evidence that nothing is owed. Summaries and inferred commitments need human review.

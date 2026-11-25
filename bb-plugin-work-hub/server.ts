@@ -42,7 +42,8 @@ export type ThreadContext=z.infer<typeof threadContextSchema>;
 export type Snapshot = z.infer<typeof snapshotSchema>;
 const sourceLinkInput=z.object({workId:z.string().min(1).max(100),url:z.string().min(1).max(2048)});
 const sourceLinkResult=z.object({state:z.enum(['added','already_linked'])});
-const mutation = z.object({kind:z.enum(['work','obligation','conversation']),id:z.string().max(100),action:z.enum(['focus','unfocus','active','waiting','done','open','fulfilled','cancelled','link']),version:z.number().optional(),value:z.string().optional()});
+const WORK_STATUSES=new Set(['active','waiting','done']);
+const mutation = z.object({kind:z.enum(['work','obligation','conversation']),id:z.string().max(100),action:z.enum(['focus','unfocus','active','waiting','done','open','fulfilled','cancelled','link','due']),version:z.number().optional(),value:z.string().optional()});
 const reviewRow=z.object({obligation_id:z.string(),title:z.string(),state:z.string(),verdict:z.string().nullable(),reason:z.string().nullable(),error:z.string().nullable(),checked_at:z.number().nullable(),commitment_state:z.string(),current_version:z.number(),obligation_version:z.number().nullable(),applied_version:z.number().nullable(),work_id:z.string(),url:z.string(),evidence:z.array(z.object({event_id:z.string(),url:z.string(),quote:z.string(),occurred_at:z.number()}))});
 const reviewPage=z.object({items:z.array(reviewRow),total:z.number(),has_more:z.boolean(),counts:z.record(z.string(),z.number()),budget:z.object({limit:z.number(),used:z.number(),remaining:z.number()})});
 export type CompletionPage=z.infer<typeof reviewPage>;
@@ -73,6 +74,8 @@ export const rpcContract = defineRpcContract({
  resolveCompletion:{input:z.object({obligationId:z.string().max(100)}),output:z.object({ok:z.boolean()})},
  contextPacket:{input:z.object({threadId:z.string().startsWith('thr_').max(100)}),output:z.record(z.string(),z.unknown())},
  snapshot:{input:z.null(),output:snapshotSchema},
+ // Accurate counts and short lists for the Chief of Staff's "Your day".
+ yourWork:{input:z.null(),output:z.record(z.string(),z.unknown())},
  workDetail:{input:z.object({workId:z.string().max(100)}),output:workDetail},
  workIndex:{input:z.object({query:z.string().max(200),status:z.enum(['all','active','waiting','done']),offset:z.number().int().min(0).max(100000)}),output:workIndex},
  openCloseOut:{input:z.object({projectId:z.string().max(100).optional()}),output:z.object({threadId:z.string()})},
@@ -89,6 +92,7 @@ export const rpcContract = defineRpcContract({
  threadContext:{input:z.object({threadId:z.string().startsWith('thr_').max(100),workId:z.string().max(100).optional()}),output:threadContextSchema},
  prepareLaunch:{input:z.object({workId:z.string().max(100),obligationId:z.string().max(100).optional()}),output:z.object({title:z.string(),prompt:z.string(),parentThreadId:z.string().nullable(),projectId:z.string().nullable()})},
  trackThread:{input:z.object({threadId:z.string().max(100)}),output:z.object({ok:z.boolean()})},
+ delegateToChiefOfStaff:{input:z.object({workId:z.string().min(1).max(100)}),output:z.object({ok:z.boolean(),message:z.string()})},
  startMorning:{input:z.object({projectId:z.string().max(100).optional()}),output:z.object({threadId:z.string()})},
  morningStatus:{input:z.null(),output:morningRun.nullable()},
  sync:{input:z.null(),output:z.object({ok:z.boolean()})},
@@ -101,7 +105,9 @@ export default async function plugin(bb:BbPluginApi) {
  const settings=bb.settings.define({
   hubPath:{type:'string',label:'Portable hub directory',default:''},
   autoContext:{type:'boolean',label:'Automatically link new conversations and fetch referenced context',default:false},
-  collectThreads:{type:'boolean',label:'Collect recent BB conversations across projects (including hidden)',default:false},
+  collectThreads:{type:'boolean',label:'Collect recent BB conversations',default:false},
+  threadProjects:{type:'string',label:'Only collect conversations from these BB project ids (comma-separated; blank: every project)',default:''},
+  includeHiddenThreads:{type:'boolean',label:'Also collect hidden conversations (internal agent threads)',default:false},
   pythonPath:{type:'string',label:'Python executable',default:'python3'},
   storageBackend:{type:'string',label:'Storage backend (bb or json; blank inherits environment)',default:''},
   storageProfile:{type:'string',label:'Encrypted storage profile (blank uses default/environment)',default:''},
@@ -132,6 +138,10 @@ export default async function plugin(bb:BbPluginApi) {
   });
  }
  registerContextHook(bb,core,config.autoContext&&config.collectThreads);
+ // Which conversations may enter the ledger: the chosen projects only, and hidden ones only when asked.
+ const threadProjects=new Set(String(config.threadProjects??'').split(',').map(s=>s.trim()).filter(Boolean));
+ const collectable=(t:{projectId:string;visibility?:string|null})=>
+  (threadProjects.size===0||threadProjects.has(t.projectId))&&(config.includeHiddenThreads||t.visibility!=='hidden');
  async function trackThread(threadId:string){
   const metadata=await bb.sdk.threads.getPluginMetadata({threadId});
   const parsed=z.object({workId:z.string().max(100)}).safeParse(metadata);
@@ -141,7 +151,7 @@ export default async function plugin(bb:BbPluginApi) {
  }
  async function captureThread(threadId:string){
   const t=await bb.sdk.threads.get({threadId});
-  if(t.archivedAt||t.deletedAt)return;
+  if(t.archivedAt||t.deletedAt||!collectable(t))return;
   const link=z.object({workId:z.string().max(100)}).safeParse(await bb.sdk.threads.getPluginMetadata({threadId}));
   if(link.success)await trackThread(threadId);
   const [output,history]=await Promise.all([bb.sdk.threads.output({threadId}),bb.sdk.threads.promptHistory({threadId,limit:'3'})]);
@@ -163,14 +173,14 @@ export default async function plugin(bb:BbPluginApi) {
    try{
     let offset=0,complete=true;const items=[];const cutoff=Date.now()-7*86400_000;
     while(offset<1000){
-     const page=await bb.sdk.threads.list({limit:100,offset,archived:false,includeHidden:true});
+     const page=await bb.sdk.threads.list({limit:100,offset,archived:false,includeHidden:config.includeHiddenThreads});
      const metadata=page.length?(await bb.sdk.threads.experimental_listPluginMetadata({threadIds:page.map(t=>t.id)})).threads:[];
      for(const row of metadata){
       const link=z.object({workId:z.string().max(100)}).safeParse(row.metadata);
       if(link.success){const t=page.find(t=>t.id===row.threadId)!;await core('register_agent_thread',{work_id:link.data.workId,thread_id:t.id,title:t.title??t.titleFallback??t.id,model:t.providerId,occurred_at:t.updatedAt/1000});}
      }
      for(const t of page){
-      if(t.updatedAt<cutoff)continue;
+      if(t.updatedAt<cutoff||!collectable(t))continue;
       const [output,history]=await Promise.all([bb.sdk.threads.output({threadId:t.id}),bb.sdk.threads.promptHistory({threadId:t.id,limit:'3'})]);
       const prompts=history.slice().sort((a,b)=>a.createdAt-b.createdAt).map(h=>({at:h.createdAt,text:h.input.filter(p=>p.type==='text').map(p=>p.text).join('\n').slice(-9000)}));
       const body=JSON.stringify({captureVersion:2,coverage:'Latest 3 prompts (last 9000 characters each) and latest assistant output (last 26000 characters); not complete transcript',status:t.status,prompts,assistant:(output.output??'').slice(-26000)});
@@ -179,8 +189,8 @@ export default async function plugin(bb:BbPluginApi) {
      }
      offset+=page.length;if(page.length<100)break;if(offset>=1000)complete=false;
     }
-    for(let i=0;i<items.length;i+=500)await core('ingest',{source:'bb',items:items.slice(i,i+500),scope:'Unarchived threads and side conversations updated within 7 days; latest 3 prompts and latest assistant output',complete:false});
-    await core('ingest',{source:'bb',items:[],checkpoint:Date.now(),scope:'Unarchived threads and side conversations updated within 7 days; latest 3 prompts and latest assistant output',complete});
+    for(let i=0;i<items.length;i+=500)await core('ingest',{source:'bb',items:items.slice(i,i+500),scope:'Unarchived threads and side conversations updated within 7 days in the selected projects (hidden ones only if enabled); latest 3 prompts and latest assistant output',complete:false});
+    await core('ingest',{source:'bb',items:[],checkpoint:Date.now(),scope:'Unarchived threads and side conversations updated within 7 days in the selected projects (hidden ones only if enabled); latest 3 prompts and latest assistant output',complete});
     bb.realtime.publish('changed',{});
    }catch{await core('source_failure',{source:'bb',message:'BB collection failed; next reconciliation will retry. Existing receipts retained.'});}
   })().finally(()=>{syncing=null;});
@@ -276,6 +286,12 @@ export default async function plugin(bb:BbPluginApi) {
    try{await delay(300000,undefined,{signal})}catch{break}
   }
  }});
+ // The Chief of Staff may have an agent on this work. Not awaited: it re-reads the status
+ // itself (so notice order cannot matter) and may be calling mutate right now.
+ const notifyChiefOfStaff=(workId:string)=>{
+  void bb.sdk.plugins.callRpc({pluginId:'chief-of-staff',method:'workChanged',input:{workId},outputSchema:z.object({ok:z.boolean(),closed:z.boolean()})})
+   .catch((e:unknown)=>{if(!/unknown plugin|not running|404/i.test(String(e)))bb.log.warn('Chief of Staff was not told about a work status change; it rechecks on its next pass.');});
+ };
  bb.rpc.register(rpcContract,{
   openCloseOut:({projectId})=>openCloseOut(projectId),
   closeOut:async()=>startCloseOut(),
@@ -295,6 +311,15 @@ export default async function plugin(bb:BbPluginApi) {
    const parent=await bb.sdk.threads.get({threadId:context.parentThreadId});
    return {...context,projectId:parent.projectId};
   },
+  // Work Hub collects and stores; the Chief of Staff plugin runs agents. Hand work over to it.
+  delegateToChiefOfStaff:async({workId})=>{
+   const result=await bb.sdk.plugins.callRpc({pluginId:'chief-of-staff',method:'delegate',input:{workIds:[workId]},outputSchema:z.object({added:z.array(z.object({id:z.string()}).passthrough()),skipped:z.number()})})
+    .catch((e:unknown)=>{throw new Error(/unknown plugin|not running|404/i.test(String(e))?'The Chief of Staff plugin is not running.':String(e))});
+   bb.realtime.publish('changed',{});
+   return result.added.length>0
+    ?{ok:true,message:'Handed to the Chief of Staff. Its agent and any questions show in the Chief of Staff panel.'}
+    :{ok:false,message:'Not delegated: an agent is already on it, or the work is done (reopen it first).'};
+  },
   trackThread:async({threadId})=>{const result=await trackThread(threadId);bb.realtime.publish('changed',{});return result;},
   threadContext:async({threadId,workId})=>threadContextSchema.parse(await core('thread_context',{thread_id:threadId,...(workId?{work_id:workId}:{})})),
   workOptions:async({conversationId,query})=>workOptionsSchema.parse(await core('work_options',{conversation_id:conversationId,query})),
@@ -308,12 +333,14 @@ export default async function plugin(bb:BbPluginApi) {
   acknowledgeChanges:async args=>{const result=z.object({ok:z.boolean()}).parse(await core('acknowledge_changes',args));bb.realtime.publish('changed',{});return result;},
   acknowledgeAttention:async args=>{const result=z.object({ok:z.boolean()}).parse(await core('acknowledge_attention',args));bb.realtime.publish('changed',{});return result;},
   snapshot:async()=>snapshotSchema.parse(await core('snapshot')),
+  yourWork:async()=>z.record(z.string(),z.unknown()).parse(await core('your_work')),
   startMorning:async({projectId})=>planning.open(projectId),
   morningStatus:async()=>morning.status(),
   sync:async()=>{await collect();return {ok:true};},
   mutate:async args=>{
    const result=await core('mutate',args);
    bb.realtime.publish('changed',{});
+   if(args.kind==='work' && WORK_STATUSES.has(args.action))notifyChiefOfStaff(args.id);
    if(args.kind==='work' && args.action==='focus'){
     const {thread_ids}=z.object({thread_ids:z.array(z.string())}).parse(result);
     return {ok:true,notice:await pinFocusedThreads(thread_ids,bb.sdk.threads)};

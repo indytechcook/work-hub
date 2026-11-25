@@ -76,7 +76,7 @@ Source-specific fields:
 
 Unused source sections can remain unconfigured. Configuration and OAuth credentials now default to BB’s encrypted Env Catalog. Each record can be overridden by an environment variable or an explicit JSON bundle; see [storage and migration](docs/storage.md). Do not put tokens inside the general `config` record; use the credential records below. Remove temporary input files after verified import if no other service needs them. Source code does not need edits for personal settings.
 
-BB conversation collection is controlled separately by the plugin. It is off initially. When enabled, it captures recent unarchived threads across BB projects, including hidden threads. **There is no per-project filter yet.** Accept that scope explicitly or keep it off.
+BB conversation collection is controlled separately by the plugin. It is off initially. When enabled, it captures recent unarchived threads. Limit it to chosen projects with `bb plugin config work-hub set threadProjects proj_a,proj_b` (blank means every project). Hidden threads (internal agent threads) are skipped unless you set `includeHiddenThreads true`.
 
 ## 4. Select the background analyzer
 
@@ -345,6 +345,7 @@ bb automation create --project "$project_id" --name "Work Hub · $tick" \
 - **health-check** raises a Work Hub attention item when coverage stays degraded across checks. Recovery clears the active alert.
 - **reply-check** checks up to four due Slack or Gmail conversations per tick, oldest check first. An open obligation owed to you qualifies automatically. For an individual sent question, use `bb work-hub watch-reply URL SENT_MESSAGE_ID [WORK_ID]`. A detected reply appears in attention for review. Original source permissions, bounded history and the sending identity affect coverage.
 - **dispatch** launches at most one private agent per tick. Configure the morning GitHub repository and/or the Better Stack application first. The first poll records existing eligible revisions and patterns as a baseline. Subsequent requests, head changes, new unresolved patterns and observed recurrences can trigger work. To pilot a current PR, use `bb work-hub dispatch PR_URL`. Reviews use separate persistent clones. BB Workflows runs the full review skill followed by an artifact and revision check. Triage opens a visible private investigation. Results live in the linked thread. External publication requires a separate decision.
+  - **With the Chief of Staff plugin running**, dispatch hands each eligible job to it instead of spawning a thread itself. Work Hub still detects, de-duplicates (the job id is the Chief of Staff item key), prepares review clones and links the resulting thread. The Chief of Staff launches within its concurrency limit, answers routine questions, and puts decisions and stalled reports in its briefing. Several jobs can be handed over in one tick; they queue there. Without the plugin, dispatch spawns threads directly as above.
 - **Finish day** opens a visible close-out thread. The optional nightly reconciliation continues in the background. `bb work-hub close-out run` starts reconciliation without opening a conversation.
 
 Pause a schedule with `bb automation pause AUTOMATION_ID --project PROJECT_ID`. BB copies script files when a schedule is created. Refresh the stored script when changing the wrapper.
