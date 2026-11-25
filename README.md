@@ -4,7 +4,7 @@ Keep your place across parallel work, AI conversations, and incoming requests.
 
 Work Hub brings related conversations, source evidence, next actions and follow-ups into a local work register inside [BB](https://getbb.app/). Focus several work items, see important arrivals, resume a conversation, or start a related agent with the context already assembled.
 
-**Start here:** [Introduction and videos](docs/videos/README.md) · [Complete setup guide](SETUP.md) · [Copy/paste AI setup prompt](SETUP-PROMPT.md) · [Security and privacy](SECURITY.md)
+**Start here:** [Team install guide (Work Hub + Chief of Staff)](INSTALL.md) · [Introduction and videos](docs/videos/README.md) · [Complete setup guide](SETUP.md) · [Copy/paste AI setup prompt](SETUP-PROMPT.md) · [Security and privacy](SECURITY.md)
 
 
 To save a personal task for later, choose **Your work → Create work item**, enter a name and optional purpose, and save. Agents can use `work_hub_create_work` or `bb work-hub create "Title" "Optional purpose"`. The item is searchable immediately and can acquire sources or conversations later.
@@ -94,10 +94,11 @@ Install dependencies using SETUP.md, then run:
 ```bash
 .venv/bin/python -m unittest discover -s hub -p 'test_*.py'
 .venv/bin/python -m unittest discover -s connectors/google -p 'test_*.py'
-node --experimental-strip-types --test bb-plugin-work-hub/reference-links.test.ts bb-plugin-work-hub/launch-context.test.ts bb-plugin-work-hub/context-hook.test.ts bb-plugin-work-hub/handoff-hook.test.ts bb-plugin-work-hub/work-name.test.ts bb-plugin-work-hub/rename-work.test.ts
-./bb-plugin-work-hub/node_modules/.bin/tsx --test bb-plugin-work-hub/rename-rpc.test.ts bb-plugin-work-hub/chief-of-staff-notify.test.ts
+node --experimental-strip-types --test bb-plugin-work-hub/reference-links.test.ts bb-plugin-work-hub/launch-context.test.ts bb-plugin-work-hub/context-hook.test.ts bb-plugin-work-hub/handoff-hook.test.ts bb-plugin-work-hub/work-name.test.ts bb-plugin-work-hub/rename-work.test.ts bb-plugin-work-hub/doctor.test.ts
+./bb-plugin-work-hub/node_modules/.bin/tsx --test bb-plugin-work-hub/rename-rpc.test.ts bb-plugin-work-hub/chief-of-staff-notify.test.ts bb-plugin-work-hub/doctor-cli.test.ts
 ./bb-plugin-work-hub/node_modules/.bin/tsc --noEmit -p bb-plugin-work-hub/tsconfig.json
 bb plugin build ./bb-plugin-work-hub
+.venv/bin/python hub/doctor.py   # read-only setup check; also `bb work-hub doctor`
 ```
 
 See [the security review](docs/security-review.md) for audit scope and limitations. Do not contribute private state, credentials, source excerpts or machine-specific settings. No open-source license has been selected yet; public visibility does not itself grant a software license.

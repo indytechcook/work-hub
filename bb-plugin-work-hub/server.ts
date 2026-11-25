@@ -12,6 +12,7 @@ import {workRenamer} from './rename-work';
 import {workNameError} from './work-name';
 import {pinFocusedThreads} from './focus-pins';
 import { launchContext } from './launch-context';
+import {doctorText,pluginChecks,type Check} from './doctor';
 
 const intent=z.object({next_action:z.string(),purpose:z.string(),project:z.string(),thread_id:z.string().nullable(),version:z.number(),updated_at:z.number().nullable()});
 const checkpoint=z.object({event_id:z.string(),occurred_at:z.number(),received_at:z.number(),analyzed_at:z.number()});
@@ -349,7 +350,7 @@ export default async function plugin(bb:BbPluginApi) {
   },
   acknowledge:async(args)=>{await core('acknowledge',args);bb.realtime.publish('changed',{});return {ok:true};},
  });
- bb.cli.register({name:'work-hub',summary:'Read the portable work register and source coverage',commands:[{name:'health-check',summary:'Check persistent source and analyzer failures',usage:'bb work-hub health-check'},{name:'watch-reply',summary:'Track replies to a sent question',usage:'bb work-hub watch-reply <url> <sent-message-id> [work-id]'},{name:'reply-check',summary:'Check due reply watches',usage:'bb work-hub reply-check'},{name:'dispatch',summary:'Launch the next eligible private agent',usage:'bb work-hub dispatch [pilot-PR-url]'},{name:'review-workflow',summary:'Print the private review workflow',usage:'bb work-hub review-workflow'},{name:'review-workflow-help',summary:'Show how to start the private review workflow',usage:'bb work-hub review-workflow-help'},{name:'close-out',summary:'Run deep local reconciliation or read its last report',usage:'bb work-hub close-out [run|status]'},{name:'create',summary:'Create a standalone personal work item',usage:'bb work-hub create <title> [purpose]'},{name:'morning',summary:'Run or inspect the guided checks from today’s morning thread',usage:'bb work-hub morning [--wait] [--refresh RUN_ID] [phase] [offset] | morning ask <question> <choice> <choice> [...] | morning save <JSON> | morning standup-review <answers-JSON>'},{name:'add-link',summary:'Attach source URLs to a work item',usage:'bb work-hub add-link <work-id> <url> [url...]'},{name:'status',summary:'Work and coverage as JSON',usage:'bb work-hub status'},{name:'sync',summary:'Reconcile recent BB conversations',usage:'bb work-hub sync'}],async run(argv,ctx){
+ bb.cli.register({name:'work-hub',summary:'Read the portable work register and source coverage',commands:[{name:'health-check',summary:'Check persistent source and analyzer failures',usage:'bb work-hub health-check'},{name:'watch-reply',summary:'Track replies to a sent question',usage:'bb work-hub watch-reply <url> <sent-message-id> [work-id]'},{name:'reply-check',summary:'Check due reply watches',usage:'bb work-hub reply-check'},{name:'dispatch',summary:'Launch the next eligible private agent',usage:'bb work-hub dispatch [pilot-PR-url]'},{name:'review-workflow',summary:'Print the private review workflow',usage:'bb work-hub review-workflow'},{name:'review-workflow-help',summary:'Show how to start the private review workflow',usage:'bb work-hub review-workflow-help'},{name:'close-out',summary:'Run deep local reconciliation or read its last report',usage:'bb work-hub close-out [run|status]'},{name:'create',summary:'Create a standalone personal work item',usage:'bb work-hub create <title> [purpose]'},{name:'morning',summary:'Run or inspect the guided checks from today’s morning thread',usage:'bb work-hub morning [--wait] [--refresh RUN_ID] [phase] [offset] | morning ask <question> <choice> <choice> [...] | morning save <JSON> | morning standup-review <answers-JSON>'},{name:'add-link',summary:'Attach source URLs to a work item',usage:'bb work-hub add-link <work-id> <url> [url...]'},{name:'doctor',summary:'Read-only setup check: paths, sign-ins, sources, scheduled jobs',usage:'bb work-hub doctor [--json]'},{name:'status',summary:'Work and coverage as JSON',usage:'bb work-hub status'},{name:'sync',summary:'Reconcile recent BB conversations',usage:'bb work-hub sync'}],async run(argv,ctx){
   if(argv[0]==='review-workflow'&&argv.length===1)return {exitCode:0,stdout:await readFile(config.hubPath+'/private-review.js','utf8')};
   if(argv[0]==='review-workflow-help')return {exitCode:0,stdout:'From the visible review thread, verify its PR workspace. Use bb_workflow_run with the exact script from bb work-hub review-workflow and args {url,base,head}. For CLI-only sessions pass the verified URL and full commits to bb workflows run --script "$(bb work-hub review-workflow)" --args \'{"url":"PR_URL","base":"BASE_SHA","head":"HEAD_SHA"}\'. Read the result and link both reports here. Keep this workspace.'};
   if(argv[0]==='health-check'&&argv.length===1){
@@ -415,8 +416,22 @@ export default async function plugin(bb:BbPluginApi) {
    return {exitCode:failed?1:0,stdout:lines.map((message,i)=>`Link ${i+1}: ${message}`).join('\n')};
   }
   if(argv[0]==='sync'){await collect();return {exitCode:0,stdout:'BB collection attempted; inspect source status for coverage.'};}
+  if(argv[0]==='doctor'){
+   // Read-only: plugin settings here, then the hub's checks from hub/doctor.py.
+   const hubFound=config.hubPath.startsWith('/')&&await readFile(config.hubPath+'/cli.py').then(()=>true,()=>false);
+   const plugins=await Promise.resolve().then(()=>bb.sdk.plugins.list()).then(r=>r.plugins,()=>[]);
+   const checks:Check[]=pluginChecks(config,hubFound,plugins.some(p=>p.id==='chief-of-staff'&&p.enabled&&p.status!=='disabled'));
+   if(hubFound)checks.push(...await new Promise<Check[]>(resolve=>{
+    const child=spawn(config.pythonPath,[`${config.hubPath}/doctor.py`,'--json'],{stdio:['ignore','pipe','ignore'],env:{...storageEnv,WORK_HUB_STATE:`${config.hubPath}/.state`}});
+    let out='';const timer=setTimeout(()=>child.kill('SIGTERM'),120000);
+    child.stdout.on('data',(b:Buffer)=>{out+=b.toString();});
+    child.on('error',()=>{clearTimeout(timer);resolve([{level:'fail',name:'pythonPath',detail:'cannot start the configured Python',fix:'bb plugin config work-hub set pythonPath "$WORK_HUB_ROOT/.venv/bin/python"'}]);});
+    child.on('close',()=>{clearTimeout(timer);try{resolve(z.object({checks:z.array(z.object({level:z.enum(['ok','info','warn','fail']),name:z.string(),detail:z.string(),fix:z.string().optional()}))}).parse(JSON.parse(out)).checks);}catch{resolve([{level:'fail',name:'Hub checks',detail:'hub/doctor.py did not report; run it directly: .venv/bin/python hub/doctor.py'}]);}});
+   }));
+   return {exitCode:checks.some(c=>c.level==='fail')?1:0,stdout:argv.includes('--json')?JSON.stringify({checks}):doctorText(checks)};
+  }
   if(argv[0]==='status')return {exitCode:0,stdout:JSON.stringify(snapshotSchema.parse(await core('snapshot')))};
-  return {exitCode:0,stdout:'bb work-hub status | sync | close-out [run|status] | create <title> [purpose] | add-link <work-id> <url> [url...]'};
+  return {exitCode:0,stdout:'bb work-hub status | doctor | sync | close-out [run|status] | create <title> [purpose] | add-link <work-id> <url> [url...]'};
  }});
 
  async function remind(){

@@ -1,6 +1,6 @@
 # Set up Work Hub from start to finish
 
-Work Hub keeps related AI conversations, source evidence, next actions and commitments together inside BB. This guide is for a new installation. An AI can perform most steps; you complete account authentication and consent.
+Work Hub keeps related AI conversations, source evidence, next actions and commitments together inside BB. This guide is for a new installation. An AI can perform most steps; you complete account authentication and consent. For the shorter team path that also installs the Chief of Staff plugin, start with [INSTALL.md](INSTALL.md) and come back here for source details. Run `.venv/bin/python hub/doctor.py` (or `bb work-hub doctor` once the plugin is installed) at any point for a read-only list of what is still missing.
 
 **AI-assisted route:** get this repository, install BB, open the source folder as a BB project, then paste [SETUP-PROMPT.md](SETUP-PROMPT.md) into a new thread. A working Claude Code installation is sufficient; Codex is optional.
 
@@ -13,7 +13,7 @@ The supported setup path currently targets macOS. Background jobs use `launchd`;
 Install Python 3.12 and Node.js/npm. Install GitHub CLI only if you want GitHub collection. The reference checks used BB 0.49.0, Python 3.12.16, Node 26.13.0, Claude Code 2.1.326, Codex CLI 0.169.0 and BB Plugin SDK 0.6.132. These are tested versions, not guaranteed minimum versions. Retain the checked-in dependency locks.
 
 ```bash
-git clone https://github.com/indytechcook/work-hub.git
+gh repo clone Liftify-Dev/work-hub
 cd work-hub
 export WORK_HUB_ROOT="$PWD"
 umask 077
