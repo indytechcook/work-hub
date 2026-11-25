@@ -3,6 +3,10 @@ import re
 from urllib.parse import urlparse, parse_qs
 
 
+class SourceGone(RuntimeError):
+    """The referenced source item was deleted; retrying cannot succeed."""
+
+
 def reference(url):
     if not isinstance(url,str):return None
     url=url.rstrip('.,;!?)>]}')

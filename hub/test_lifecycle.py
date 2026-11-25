@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 from test_support import isolate_storage
 from store import Store,digest
-from references import reference,references
+from references import reference,references,SourceGone
 from completion import once
 from source_reads import add_source_link, hydrate_context, refresh_reference
 
@@ -182,6 +182,21 @@ class LifecycleTests(unittest.TestCase):
         self.assertFalse(self.s.finish_context(claim,error='old worker'))
         self.assertTrue(self.s.finish_context(new,error='unavailable'))
         self.assertEqual(self.s.context_packet('thr_new')['requests'][0]['state'],'error')
+    def test_deleted_source_stops_retrying(self):
+        self.s.ensure_context('thr_new','Work',SLACK)
+        with patch('source_reads.selected_sources',return_value=['slack']),patch('source_reads.read_reference',side_effect=SourceGone('gone')) as reader:
+            hydrate_context(self.s,'thr_new')
+            with self.s.db:self.s.db.execute('UPDATE context_requests SET updated_at=0')
+            hydrate_context(self.s,'thr_new')
+        self.assertEqual(reader.call_count,1)
+        request=self.s.context_packet('thr_new')['requests'][0]
+        self.assertEqual(request['state'],'gone')
+        self.assertEqual(request['error'],'Source no longer exists; not retrying')
+    def test_deleted_source_link_says_it_no_longer_exists(self):
+        work=self.source('github',PR,body='Destination')
+        with patch('source_reads.selected_sources',return_value=['slack','github']),patch('source_reads.slack_settings',return_value={'workspace_url':'https://example.slack.com'}),patch('source_reads.read_reference',side_effect=SourceGone('gone')):
+            with self.assertRaisesRegex(ValueError,'no longer exists'):add_source_link(self.s,work,SLACK)
+            with self.assertRaisesRegex(ValueError,'no longer exists'):add_source_link(self.s,work,SLACK)
     def test_cross_source_evidence_and_verified_save(self):
         self.commitment();cid=self.source('github',PR,'Review submitted',time.time())
         eid=self.s.db.execute('SELECT latest_event FROM conversations WHERE id=?',(cid,)).fetchone()[0]

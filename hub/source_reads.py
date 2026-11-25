@@ -4,7 +4,7 @@ import os
 import re
 import subprocess
 import time
-from references import reference
+from references import reference, SourceGone
 from source_preview import slack_messages
 from settings import selected_sources, slack as slack_settings
 
@@ -72,6 +72,7 @@ def refresh_reference(store, url, project_id=None, *, retry_error=False):
     same_scope=ref['source']!='linear' or ('project_id' in cache and cache['project_id']==project_id)
     if same_scope and cache.get('checked_at',0)>time.time()-120 and not (retry_error and cache.get('error')):
         check_source_scope(ref)
+        if cache.get('error')=='SourceGone':raise SourceGone('Referenced source no longer exists')
         if cache.get('error'):raise RuntimeError('Referenced source temporarily unavailable')
         if store.db.execute('SELECT 1 FROM conversations WHERE id=?',(cache.get('conversation_id'),)).fetchone():return cache['conversation_id']
     try:
@@ -110,6 +111,8 @@ def add_source_link(store, work_id, url):
             break
     try:
         cid=captured['id'] if captured else refresh_reference(store,ref['url'])
+    except SourceGone as error:
+        raise ValueError('This message no longer exists in the source.') from error
     except (RuntimeError,OSError,subprocess.TimeoutExpired,ValueError) as error:
         raise ValueError('Could not read this link. Check source access and retry.') from error
     with store.db:
@@ -145,6 +148,8 @@ def hydrate_context(store, thread_id=None, limit=1):
                     (claim['reference_key'],)).fetchone()
             cid=captured['id'] if captured else refresh_reference(store,claim['url'],store._record('context_project:'+claim['thread_id'],None))
             store.finish_context(claim,cid)
+        except SourceGone:
+            store.finish_context(claim,error='Source no longer exists; not retrying',gone=True)
         except Exception as error:
             # Connector failures can wrap private payloads: retain only a safe category.
             store.finish_context(claim,error='Source read unavailable ('+type(error).__name__+'); retrying')

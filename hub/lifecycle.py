@@ -140,7 +140,7 @@ class LifecycleMixin:
             self.db.execute("UPDATE context_requests SET state='running',lease_token=?,lease_until=? WHERE thread_id=? AND reference_key=?",(token,now+180,row['thread_id'],row['reference_key']))
             return {**dict(row),'lease_token':token}
 
-    def finish_context(self, claim, source_conversation_id=None, error=None):
+    def finish_context(self, claim, source_conversation_id=None, error=None, gone=False):
         with self.db:
             self.db.execute('BEGIN IMMEDIATE')
             row=self.db.execute('SELECT * FROM context_requests WHERE thread_id=? AND reference_key=? AND lease_token=?',(claim['thread_id'],claim['reference_key'],claim['lease_token'])).fetchone()
@@ -150,7 +150,7 @@ class LifecycleMixin:
                 current=self.db.execute('SELECT id work_id FROM work WHERE id=?',(claim['thread_id'][5:],)).fetchone()
             if current and source_conversation_id:
                 self.attach_read_source(source_conversation_id,current['work_id'])
-            self.db.execute('UPDATE context_requests SET state=?,error=?,updated_at=?,lease_token=NULL,lease_until=NULL WHERE thread_id=? AND reference_key=?',('error' if error else 'ready',error,time.time(),claim['thread_id'],claim['reference_key']))
+            self.db.execute('UPDATE context_requests SET state=?,error=?,updated_at=?,lease_token=NULL,lease_until=NULL WHERE thread_id=? AND reference_key=?',('gone' if gone else 'error' if error else 'ready',error,time.time(),claim['thread_id'],claim['reference_key']))
             if source_conversation_id and not error and claim['reference_key'].startswith('slack:'):
                 self.queue_slack_links(conversation_id=source_conversation_id,thread_id=claim['thread_id'])
         return True
